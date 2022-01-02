@@ -16,7 +16,7 @@ NOTE: Most of the data may be downloaded from [here](https://1drv.ms/u/s!AoBI2eT
 
 ### Instructions
 
-Note: These instructions assume that you have installed Microsoft R Open 4.0.2 and RTools (version 4), and that you have a 64bit machine. RTools may be obtained from here: https://cran.r-project.org/bin/windows/Rtools/rtools40.html. Note also that you may need more than 16GB of RAM to render the hypothesis_3.rmd file.
+Note: These instructions assume that you have installed Microsoft R Open 4.0.2 and RTools (version 4), and that you have a 64-bit machine. RTools may be obtained from here: https://cran.r-project.org/bin/windows/Rtools/rtools40.html. Note also that you may need more than 16 GB of RAM to render the hypothesis_3.rmd file.
 
 1. Obtain the data files, save them to this folder, and unzip them. Unzipped files must be stored in the "data/" folder
 (e.g., "data/bau_data.rds").
