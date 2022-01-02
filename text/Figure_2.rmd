@@ -1,0 +1,81 @@
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+source("../R/model_main.R")
+
+library(rgdal)
+library(raster)
+library(rasterVis)
+
+# Read in GIS data:
+bau_r <- raster("../data/bau_region.tif")
+wt_contours <- readOGR("../data/time_fromBau_contours")
+sites_v <- readRDS("../data/bau_coor.rds")
+sources_v <- readOGR("../data/sources_utm_abr")
+aid_chulls <- readRDS("../data/aids.chulls.rds")
+
+# Hillshade:
+slope <- terrain(bau_r, opt = "slope")
+aspect <- terrain(bau_r, opt = "aspect")
+hill <- hillShade(slope, aspect, 40, 270)
+
+
+# Fig extents:
+clip_exts <- c(662000, 730000, 4844000, 4903000) # W, E, S, N
+e <- as(extent(clip_exts), "SpatialPolygons")
+crs(e) <- crs(bau_r)
+hill <- crop(hill, e)
+
+# Process raster for plotting
+hill <- data.frame(rasterToPoints(hill))
+
+# Process vectors:
+sources_v_c <- data.table(sources_v@data[, c("SourceID", "Elevation",
+                                             "x", "y", "z")])
+names(sources_v_c)[1] <- "sid"
+# Not the most elegant way, but it will have to do for now
+sources_v_c <- sources_v_c[x >= clip_exts[1] & x <= clip_exts[2] &
+                           y >= clip_exts[3] & y <= clip_exts[4]]
+sources_v_c <- merge(sources_v_c, glm_sel[, c("sid", "pot.used")], by = "sid")
+sources_v_c_s1 <- sources_v_c[pot.used == 1]
+sources_v_c_s0 <- sources_v_c[pot.used == 0]
+coordinates(sources_v_c_s1) <- 3:4
+coordinates(sources_v_c_s0) <- 3:4
+sites_v_c <- sites_v # Used to be read from a Shapefile. Keep as is for now.
+coordinates(sites_v_c) <- 6:7
+
+p <- suppressWarnings(lapply(aid_chulls, sp::Polygon))
+aid_chulls_poly <- sp::SpatialPolygons(lapply(seq_along(p),
+                          function(i) Polygons(list(p[[i]]), ID = names(p)[i])))
+
+```
+
+```{r Figure2, fig.cap="Figure 2. Study area and lithic resource distribution around the Bau de l’Aubesier. Sources of archaeologically represented raw materials (set S1) are indicated by green circles and sources of non-represented materials (set S0) by red squares. Green polygons represent convex hulls encompassing sources from different archaeologically exploited source areas; note that these vary in size and at times overlap. Concentric rings show GIS-computed distances that can be covered while walking away from the site, in one-hour increments (minimum walking times). Note that several S0 sources are located close to the site and that most S1 sources are located at relatively substantial distances from the Bau. Two distant S0 sources included in the dataset are not shown in this figure; one is located far to the west, and the other beyond the area’s eastern limits. Coordinates are given in UTM zone 31N."}
+
+# Plot:
+g <- ggplot(NULL, aes(x, y)) +
+  theme_bw() + theme(legend.position = "none", text = element_text(size = 20)) +
+  xlab("") + ylab("") +
+  geom_raster(data = hill, aes(fill = layer)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_gradient(low = "black", high = "white") +
+  geom_path(data = wt_contours, aes(x = long, y = lat, group = group)) + # WT
+  geom_point(data = data.frame(sources_v_c_s0),
+             shape = "square filled", fill = "red", cex = 2.5) +
+  geom_point(data = data.frame(sources_v_c_s0),
+             shape = "square plus", cex = 2) +
+  geom_point(data = data.frame(sources_v_c_s1),
+             shape = "circle filled", fill = "green", cex = 2.5) +
+  geom_polygon(data = broom::tidy(aid_chulls_poly),
+               aes(x = long, y = lat, group = id),
+               color = "black", fill = "green", alpha = 0.5, size = 0.15) +
+  geom_point(data = data.frame(sites_v_c), shape = 13, cex = 3.5,
+             stroke = 1.3) +
+  coord_equal()
+
+ggsave("../plots/Figure_2.jpg", plot = g, width = 30, height = 30,
+       units = "cm", dpi = 1200)
+
+g
+```

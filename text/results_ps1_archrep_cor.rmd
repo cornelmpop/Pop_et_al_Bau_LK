@@ -1,0 +1,90 @@
+## Results
+
+### 3.2. PS1 as a proxy measure of relative benefit:
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(MASS)
+library(ggstance)
+source("../R/model_main.R")
+source("../R/cmp_stat_fcns.r")
+```
+
+```{r}
+# Prepare data
+prox_sel <- merge(glm_sel, pred_cv_fits_agg, by = "sid")
+prox_sel <- prox_sel[pot.used == 1, list(sid = sid, lithics = lithics,
+                                      probs.full = probs.full,
+                                      probs.cv.mean = mean_pred,
+                                      lithics.sa = max(na.omit(lithics)),
+                                      mean.probs.cv.mean = mean(mean_pred),
+                                      med.probs.cv.mean = median(mean_pred),
+                                      max.probs.cv.mean = max(mean_pred)),
+                   by = c("aid")]
+# Filter out sources with NA values (i.e., keep one source per src area)
+prox_sel_red <- na.omit(prox_sel)
+prox_cor_max <- cor.test(prox_sel_red$lithics.sa,
+                         prox_sel_red$max.probs.cv.mean, method = "spearman",
+                         exact = FALSE)
+prox_cor_mean <- cor.test(prox_sel_red$lithics.sa,
+                          prox_sel_red$mean.probs.cv.mean, method = "spearman",
+                          exact = FALSE)
+prox_cor_median <- cor.test(prox_sel_red$lithics.sa,
+                            prox_sel_red$med.probs.cv.mean, method = "spearman",
+                            exact = FALSE)
+```
+
+$P_{S1}$ values appear to be good proxy measures of the relative perceived benefits afforded by different
+procurement alternatives. A Spearman’s rank correlation test revealed a strong and significant positive
+relationship between the number of stone artifacts produced from different raw material types and the maximum cross-validated average (across the 100 replications) $P_{S1}$ values predicted for individual
+sources where such materials can be obtained ($r_s$ = `r round(as.numeric(prox_cor_max$estimate), 3)`; n = `r nrow(prox_sel_red)`, p `r report_pvals(prox_cor_max$p.value)`). This relationship remains
+significant if the mean ($r_s$ = `r round(as.numeric(prox_cor_mean$estimate), 3)`, p `r report_pvals(prox_cor_mean$p.value)`) or median ($r_s$ = `r round(as.numeric(prox_cor_median$estimate), 3)`, p `r report_pvals(prox_cor_median$p.value)`) estimates for source areas are used, but it is considerably weaker than observed with maxima, which to us suggests that exploitation was driven by the preferential use of the most desirable (i.e., highest $P_{S1}$ value) sources; accounting for sources with relatively low $P_{S1}$ values seems to simply add noise,
+likely because many such sources were not actually used. The strength of this relationship, which is visually represented
+in Figure 4, is consistent
+with a good overall performance of our model as well as with substantial uniformity in criteria shaping
+the management of lithic resources: factors that rendered specific sources of stone desirable from the
+perspective of the Neandertal inhabitants of the Bau seem to have proportionally influenced the
+quantities of raw materials collected from these sources and/or the degree to which they were reduced
+before discard.
+
+
+```{r res-classif-corr, fig.cap="Figure 4. PS1 values as proxies for archaeological representation. Archaeological frequencies are significantly and positively correlated with PS1 values (maximum cross-validated averages; blue dots) estimated for source areas represented at the Bau. Blue line and shaded area show a fitted negative binomial model and its 95% confidence limits. Boxplots represent the range of variation in PS1 values per source area. Note that PS1 values are computed with access costs set to minimum walking times from the Bau."}
+
+# Prepare data for cross-validated PS1 vals vs lithics plot
+pl_data <- data.table(lithics.sa = rep(NA, 100),
+         max.probs.cv.mean = seq(from = min(prox_sel_red$max.probs.cv.mean ^ 2),
+                                 to = max(prox_sel_red$max.probs.cv.mean ^ 2),
+                                 length.out = 100))
+pl_mod <- glm.nb(lithics.sa ~ max.probs.cv.mean, data = prox_sel_red)
+pl_pred_l <- predict(pl_mod, newdata = pl_data, se.fit = TRUE, type = "link")
+pl_data$pred.l <- exp(pl_pred_l$fit)
+pl_data$min.lq <- exp(pl_pred_l$fit - pl_pred_l$se.fit * abs(qt(p = 0.025,
+                                                      df = pl_mod$df.residual)))
+pl_data$max.lq <- exp(pl_pred_l$fit + pl_pred_l$se.fit * abs(qt(p = 0.025,
+                                                      df = pl_mod$df.residual)))
+pl_data$probs.cv.mean <- pl_data$max.probs.cv.mean
+
+g <- ggplot(data = prox_sel, aes(y = log(lithics.sa), x = probs.cv.mean ^ 2)) +
+  theme_bw(base_size = 16) +
+  geom_point(data = prox_sel_red, aes(y = log(lithics),
+                                      x = max.probs.cv.mean ^ 2), size = 2,
+             color = "blue") +
+  geom_ribbon(data = pl_data, aes(ymin = log(min.lq), ymax = log(max.lq),
+                                 x = probs.cv.mean), fill = rgb(0, 0, 1, 0.2)) +
+  geom_line(data = pl_data, aes(y = log(pred.l), x = probs.cv.mean),
+            color = "blue") +
+  geom_boxploth(data = prox_sel, outlier.shape = NA, aes(group = aid),
+                fill = rgb(0, 0, 0, 0.2)) +
+  scale_x_continuous(expression(paste("Cross-validated ", P["S1"], " values")),
+              breaks = seq(0, ceiling(max(prox_sel$max.probs.cv.mean ^ 2)), .2),
+              labels = round(sqrt(seq(0,
+                       ceiling(max(prox_sel$max.probs.cv.mean ^ 2)), .2)), 2)) +
+  scale_y_continuous("Number of lithics at the Bau",
+              breaks = seq(1, ceiling(max(log(prox_sel$lithics.sa))), 2),
+              labels = round(exp(seq(1, ceiling(max(log(prox_sel$lithics.sa))),
+                                     2))))
+g
+ggsave("../plots/fig_4.jpg", plot = g, width = 20, height = 15, units = "cm",
+       dpi = 1200)
+```

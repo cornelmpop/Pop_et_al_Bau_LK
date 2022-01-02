@@ -1,0 +1,369 @@
+## Logistic resource selection model:
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(car)
+source("../R/model_main.R")
+source("../R/cmp_stat_fcns.r")
+```
+
+### Results:
+
+#### 3.1. Resource selection model and PS1 estimation
+
+A null model comparison indicates that the evaluated characteristics of the available sources have a
+highly significant combined influence on their probabilities ($P_{S1}$) of yielding raw material types that are
+also archaeologically represented at the Bau ($\chi^2$=`r round(res_mod_sig$Deviance[2], 2)`,
+df=`r res_mod_sig$Df[2]`, p `r report_pvals(res_mod_sig$P[2])`). As shown in Table 2<!-- \@ref(tab:som-moddiag-infl-coefs) --> (see also
+SOM S4), the quality of the raw materials, the size of the area over which these are found, and the
+abundance of large nodules, all have a positive effect. However, the strongest and most significant
+predictor is the minimum walking time required to reach the sources from the Bau, and its effect is
+negative; the higher the access costs of a source, the less likely it is to provide raw material types
+represented at the site. These results are consistent with previous findings (e.g., Browne and Wilson,
+2011) as well as theoretical expectations.
+
+```{r res-mod-coefs, message=FALSE}
+
+p_vals <- unlist(lapply(coef(summary(mod))[, "Pr(>|z|)"], report_pvals))
+round_to <- 3
+mod.sum <- data.frame("Term (scaled)" = c("Intercept", "Quality (log)",
+                                        "Extent (sqrt)", "Time from Bau (sqrt)",
+                                        "Large rock abundances"),
+                "Estimate" = round(coef(summary(mod))[, "Estimate"], round_to),
+                "SE" = round(coef(summary(mod))[, "Std. Error"], round_to),
+                "Lower CL" = round(confint(object = mod)[, 1], round_to),
+                "Upper CL" = round(confint(object = mod)[, 2], round_to),
+                "Unscaled mean" = c("N/A",
+                                    round(mean(glm_sel$qual.log), round_to),
+                                    round(mean(glm_sel$ext.sqrt), round_to),
+                                    round(mean(glm_sel$time.sqrt), round_to),
+                                    round(mean(glm_sel$large_r), round_to)),
+                      "Unscaled SD" = c("N/A",
+                                        round(sd(glm_sel$qual.log), round_to),
+                                        round(sd(glm_sel$ext.sqrt), round_to),
+                                        round(sd(glm_sel$time.sqrt), round_to),
+                                        round(sd(glm_sel$large_r), round_to)),
+                      "P" = p_vals)
+
+knitr::kable(mod.sum,
+                       col.names = c("Term (scaled)", "Estimate", "SE",
+                                   "Lower CL", "Upper CL", "Mean", "SD", "P"),
+                       row.names = FALSE,
+                       format = "html",
+                       caption = "Table 2. Scaled logistic resource selection
+            model coefficients with unscaled means and standard deviations. ")
+
+```
+
+
+
+The estimated $P_{S1}$ values for individual raw material sources are quite variable (min = `r round(min(glm_sel$probs.full), 2)`,
+max = `r round(max(glm_sel$probs.full), 2)`, mean = `r round(mean(glm_sel$probs.full), 2)`, SD = `r round(sd(glm_sel$probs.full), 2)`), and this is true even of sources assigned to the same source
+area. Estimated probabilities for the seven locations assigned to source area 55, for example, which
+yields the most common raw material type in the Bau assemblage (`r max(glm_sel[aid == 55]$lithics, na.rm=T)` artifacts), vary between a
+minimum of `r round(min(glm_sel[aid == 55]$probs.full), 2)` and a maximum of `r round(max(glm_sel[aid == 55]$probs.full), 2)`, having a mean of `r round(mean(glm_sel[aid == 55]$probs.full), 2)`. This variability is expected given the
+substantial differences in the characteristics of the sources (see SOM S2), including access costs (see Fig.
+2) and the overall quality of the available nodules. It is nevertheless noteworthy because it strongly
+suggests that not all locations within a given source area represented at the Bau were exploited to the
+same extent and, indeed, some may not have been utilized at all. Also noteworthy, particularly given our
+present goals, is that several sources which are not represented at the Bau (n = `r nrow(glm_sel[pot.used == 0 & probs.full > .5])`, or `r round(nrow(glm_sel[pot.used == 0 & probs.full > .5])/nrow(glm_sel[pot.used == 0]) * 100, 0)`%) were assigned
+high probabilities by our model ($P_{S1}$ >= `r min(glm_sel[pot.used == 0 & probs.full > .5]$probs.full)`; max = `r max(glm_sel[pot.used == 0 & probs.full > .5]$probs.full)`).
+
+### SOM S3 - Logistic model diagnostics
+
+An examination of variance inflation factors (VIFs) revealed that collinearity
+was not an issue (maximum VIF = `r round(max(car::vif(mod)), 2)`).
+Despite the imbalance in the frequency of the two response alternatives, the model
+also appears to be stable, as case-wise deletions do not substantially affect
+individual estimated coefficients (SOM Table S6; see also SOM Fig. S4 for standardized dfbeta values,
+which indicate the standardized difference between coefficient estimates with cases excluded one at a time).
+
+
+``` {r som-moddiag}
+mod_dfb <- data.frame(slope = mod$coefficients,
+                      mod$coefficients + t(apply(X = dfbeta(mod),
+                                                 MAR = 2, FUN = range)))
+mod_dfb <- round(mod_dfb, 4)
+mod_dfb <- cbind(rownames(mod_dfb), mod_dfb)
+names(mod_dfb) <- c("Coefficient", "Slope estimate", "Minimum", "Maximum")
+rownames(mod_dfb) <- 1:nrow(mod_dfb)
+knitr::kable(mod_dfb, caption = "SOM Table S6. Baseline scaled (z-transformed)
+             logistic model coefficients with minimum and maximum ranges with
+             case-wise deletions.")
+```
+
+```{r som-moddiag-plot, fig.cap= "SOM Figure S4. Plot of standardized dfbeta values for individual scaled predictors"}
+car::dfbetasPlots(mod)
+jpeg(filename = "../plots/dfbetas.jpg", width = 3000, height = 2000,
+     unit = "px", quality = "1200", pointsize = 70)
+car::dfbetasPlots(mod, lwd = 2)
+dev.off()
+
+```
+
+```{r}
+lev_thresh <- 2 * (length(coefficients(mod)) + 1) / length(residuals(mod))
+```
+
+We did identify `r length(which(hatvalues(mod) > lev_thresh))` influential cases (SOM Table S7), defined
+here as having leverage values above a threshold of two times the
+number of predictors plus one divided by the number of cases (i.e.
+2*`r length(coefficients(mod)) + 1`/`r length(residuals(mod))`, or
+`r round(lev_thresh, 3)`). However, removal of these influential cases does not
+have a major effect on the results: all coefficients remain within
+their standard error as observed in the full model with no cases removed, no coefficients
+change signs and no critical changes in the significance of individual predictors
+can be observed (see SOM Table S8). Most affected by the
+removal of influential cases is the estimate for the quality variable, which is
+not surprising given that the removed cases have some of the highest quality
+values in the dataset.
+
+```{r som-moddiag-infl-tab}
+
+data_infl <- cbind(glm_sel[which(hatvalues(mod) > lev_thresh),
+                          c("sid", "aid", "pot.used", "time_fromBau", "quality",
+                            "extent", "large_r")],
+              data.frame(leverage = round(hatvalues(mod)[which(hatvalues(mod) >
+                                                              lev_thresh)], 4)))
+data_infl$time_fromBau <- round(data_infl$time_fromBau / 3600, 1)
+data_infl$extent <- round(data_infl$extent)
+data_infl$large_r <- as.character(data_infl$large_r)
+
+pot.used.srcs <- which(data_infl$pot.used == 1)
+data_infl$pot.used <- as.character(data_infl$pot.used)
+data_infl[pot.used.srcs, ]$pot.used <- "Potentially utilized"
+data_infl[-pot.used.srcs, ]$pot.used <- "Not used"
+data_infl[which(data_infl$large_r == "0"), ]$large_r <- "None"
+data_infl[which(data_infl$large_r == "1"), ]$large_r <- "Scarce"
+data_infl[which(data_infl$large_r == "2"), ]$large_r <- "Rel. scarce"
+data_infl[which(data_infl$large_r == "3"), ]$large_r <- "Abundant"
+data_infl[which(data_infl$large_r == "4"), ]$large_r <- "Very abundant"
+
+data_infl <- data_infl[order(-leverage), ]
+names(data_infl) <- c("Source", "Area", "Classification",
+                      "Minimum walking time from Bau (hr)", "Quality",
+                      "Extent (m<sup>2</sup>)", "Large rock abundances",
+                      "Leverage")
+
+knitr::kable(data_infl, caption = "SOM Table S7. Characteristics (unscaled) of
+             influential cases with leverage values above selected threshold,
+             ordered by their leverage values")
+```
+
+### SOM S4 - Logistic model results:
+A null model comparison revealed that our logistic model of the influence of the four tested variables on the likelihood of sources being classified as potentially utilized or not is highly significant ($\chi^2$=`r round(res_mod_sig$Deviance[2], 2)`,
+df=`r res_mod_sig$Df[2]`, p `r report_pvals(res_mod_sig$P[2])`). As illustrated in
+SOM Table S8 and as discussed below, the quality of the raw materials, the size of the area over which these are found, and the abundance of large nodules (more flexible in their potential for reduction), all have a positive and significant impact on the likelihood of sources being classified as potentially utilized.
+However, the strongest
+and most significant influence is that of the time it takes to reach a source from the Bau, and its effect is negative - the higher the access costs of a source, the less likely it is to be classified as potentially exploited. These results are consistent with previous findings (e.g., Browne and Wilson, 2011) as well as theoretical expectations.
+
+
+```{r som-moddiag-infl-coefs}
+# Test model with high leverage cases removed:
+data_sel <- subset(glm_sel, hatvalues(mod) <= lev_thresh)
+mod_sel <- glm(pot.used.fac ~ qual.log.z + ext.sqrt.z + time.sqrt.z + large_r.z,
+               data = data_sel, family = "binomial")
+
+mod_sum <- data.frame("Model" = paste("All cases (n=", length(mod$residuals),
+                                      ")", sep = ""),
+                      "Coefficient" = names(mod$coefficients),
+                      "Estimate" = coef(summary(mod))[, "Estimate"],
+                      "Std Error" = coef(summary(mod))[, "Std. Error"],
+                      "Z value" = coef(summary(mod))[, "z value"],
+                      "P" = coef(summary(mod))[, "Pr(>|z|)"])
+mod_sum <- rbind(mod_sum,
+                 data.frame("Model" = paste("High leverage cases removed (n=",
+                                            length(mod_sel$residuals), ")",
+                                            sep = ""),
+                          "Coefficient" = names(mod_sel$coefficients),
+                          "Estimate" = coef(summary(mod_sel))[, "Estimate"],
+                          "Std Error" = coef(summary(mod_sel))[, "Std. Error"],
+                          "Z value" = coef(summary(mod_sel))[, "z value"],
+                          "P" = coef(summary(mod_sel))[, "Pr(>|z|)"]))
+mod_sum[3:6] <- round(mod_sum[3:6], 3)
+rownames(mod_sum) <- 1:nrow(mod_sum)
+mod_sum <- knitr::kable(mod_sum, "html", caption = "SOM Table S8. Baseline scaled (z-transformed) logistic model coefficients with and without influential cases removed.")
+kableExtra::collapse_rows(mod_sum, 1)
+```
+
+
+#### Minimum walking times from Bau {#SOM-walktimes}
+
+``` {r}
+time_probs <- predict_logistic_fits(mod, "time.sqrt.z",
+                                   var_vals = glm_sel$time.sqrt.z, type = "raw")
+```
+<!-- NOTE: I'm using the means of the transformed variables here (i.e. as they
+went into the model), NOT as they appear on their raw scale, since that's not the
+value we're controlling for -->
+SOM Figure S5 shows the influence of the cost of reaching a
+source from the Bau on its likelihood of classification as potentially utilized,
+when controlling for the effects of the other variables considered.
+Sources of an average size (ca. `r round(mean(glm_sel$ext.sqrt)^2, 2)`m<sup>2</sup>), yielding
+raw materials of average
+quality for the region (ca. `r round(exp(mean(glm_sel$qual.log)), 2)`), and
+characterized by an abundance of large rocks that is also typical for the study
+area (i.e., absent or scarce), have a probability of being classified as
+potentially utilized of about `r round(max(time_probs$fit), 2)*100`%
+(`r round(time_probs[which.max(time_probs$fit), "lwr"], 2)*100`-`r round(time_probs[which.max(time_probs$fit), "upr"], 2)*100` at 95% confidence level)
+<!-- Not using zero for time here because that would be extrapolating from the data -->
+if in the vicinity of the Bau (i.e. where the closest source classified as
+potentially utilized is located, or `r round(min(glm_sel$time_fromBau)/60, 1)`
+minutes from the Bau). This probability falls below 50% if located at
+more than about `r round(as.numeric(glm_sel[which.min(abs(time_probs$fit - .5)), c("time_fromBau")]/60))` minutes from the site. Note that these probabilities do not account for the spatial relationship between sources.
+
+
+```{r som-modres-time, fig.cap="SOM Figure S5. Modeled probabilities of source classification (0 = unused; 1 = potentially utilized) based on the minimum walking times required to reach them from the from Bau, when all other source characteristics are kept at the mean values observed throughout the region. Actual observations are represented by black dots. Note that this variable has a major effect on classification probabilities, with estimates ranging from more than 0.75 with average sources located close to the site to almost zero with average sources located at ca. 13 hours from the Bau"}
+
+## Walking time effect, all other predictors at their mean value:
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "time.sqrt.z",
+                        "pot.used.fac", bin_freq = FALSE)
+# Sort out labels:
+res_brk_lbl <- 1:round(max(glm_sel$time_fromBau) / 3600) # Hours from the Bau.
+# Transform to raw scale of the scaled variable
+res_brk_trans <- sqrt(res_brk_lbl * 3600)
+res_brk <- (res_brk_trans - mean(glm_sel$time.sqrt)) / sd(glm_sel$time.sqrt)
+# Plot
+p_time <- res$g + scale_x_continuous("Minimum walking time from Bau (hours)",
+                                     breaks = res_brk, labels = res_brk_lbl) +
+  labs(y = "Probability of classification as potentially used")
+p_time
+ggsave(filename = "../plots/figure_s5.jpg", plot = p_time, width = 20,
+       height = 15, units = "cm", dpi = 600)
+```
+
+#### The influence of raw material quality {#SOM-rmqual}
+``` {r}
+qual_probs <- predict_logistic_fits(mod, "qual.log.z",
+                                   var_vals = glm_sel$qual.log.z, type = "raw")
+```
+The influence of raw material quality on the likelihood of sources being classified
+as potentially utilized when other variables are controlled for is shown in SOM
+Figure S6. As indicated in subplot A, these likelihoods
+are above 50% for sources with otherwise average characteristics for the region
+(i.e. scarce large nodules and a surface area of roughly
+`r round(mean(glm_sel$ext.sqrt)^2)`m<sup>2</sup>) and located in the vicinity
+of the Bau (i.e. ca. `r round(min(glm_sel$time_fromBau)/60)` minutes) in all but
+the lowest raw material quality cases. On the other hand, similar sources that
+are only reachable in ca. `r round(mean(glm_sel$time.sqrt)^2/3600, 1)` hours or more from the Bau (the
+adjusted mean for the region) would have to yield materials of the highest
+quality (ca. `r round(exp(min(qual_probs[which(qual_probs$fit >= .5),]$qual.log.z) * sd(glm_sel$qual.log) + mean(glm_sel$qual.log)), 1)`) 
+to have a greater than 50% probability of being classified as potentially utilized
+(subplot B).
+
+```{r som-modres-qual, fig.cap="SOM Figure S6. Modeled probabilities of source classification (0 = unused; 1 = potentially utilized) based on raw material quality, with minimum walking times (from the Bau) kept constant either at the observed minimum (A) or at the average for all sources in the region (B), and all other variables kept constant at their mean. Actual observations are represented by black dots whose size is proportional to the number of unused or potentially used sources with specific raw material quality values. Note that the presence of high quality raw materials plays an important role, but more so with sources that are not in the immediate vicinity of the site (B)."}
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "qual.log.z", "pot.used.fac",
+                       vopt = "time.sqrt.z",
+                       vopt_val = min(glm_sel$time.sqrt.z))
+is.wholenumber <-
+    function(x, tol = .Machine$double.eps^0.5)  abs(x - round(x)) < tol # From is.integer example
+q_labs <- exp(res$xscale$labels)
+q_labs_ni <- which(!is.wholenumber(q_labs))
+q_labs[q_labs_ni[-1]] <- ""
+
+p_qual_min <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                        labels = q_labs) +
+  guides(size = FALSE) +
+  labs(y = "Probability of classification as potentially used")
+
+
+
+# Quality:
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "qual.log.z", "pot.used.fac")
+# Note: Reusing var from previous plot, but the labels/breaks shouldn't change.
+p_qual_avg <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                        labels = q_labs) +
+  theme(axis.title.y = element_text(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(y = "")
+
+p_qual <- cowplot::plot_grid(p_qual_min, p_qual_avg, labels = "AUTO", nrow = 1)
+p_qual_plt <- cowplot::ggdraw(cowplot::add_sub(p_qual, "Raw material quality",
+                                 vpadding = grid::unit(0, "lines"),
+                                 y = 6, x = 0.5, vjust = 4.5))
+p_qual_plt
+
+```
+
+#### The influence of source extent {#SOM-extent}
+
+For otherwise average sources located in the vicinity of the Bau, the size of the
+area over which raw materials may be found somewhat shapes but certainly does
+not fundamentally determine their probabilities of classification as potentially
+utilized, which are in all cases above ca. 70% (SOM Fig. S7). This variable has
+a somewhat clearer effect when access costs become a greater concern, but in all
+cases the probability of classification as potentially utilized for otherwise
+average sources (scarce large rocks, relatively low quality raw materials, ca. 3 hours away
+from the Bau) is well below 50%. Assuming classification probabilities are adequate
+proxies for selection probabilities, these data suggest that, when other criteria
+were met, larger sources were preferred, possibly because
+of a combination of factors such as being easier to find, easier to intercept
+on the way back to the site, and easier to casually procure materials from (having to work less to find suitable stone). 
+
+```{r som-modres-ext, fig.cap="SOM Figure S7. Modeled probabilities of source classification (0 = unused; 1 = potentially utilized) based on source extents, with minimum walking times (from the Bau) kept constant either at the observed minimum (A) or at the average for all sources in the region (B), and all other variables kept constant at their mean. Actual observations are represented by black dots whose size is proportional to the number of unused or potentially used sources with specific extent values. Note that source extent plays a role, with larger sources being more likely to be classified as potentially utilized, but the influence of this variable is relatively minor."}
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "ext.sqrt.z", "pot.used.fac",
+                        vopt = "time.sqrt.z",
+                        vopt_val = min(glm_sel$time.sqrt.z))
+p_ext_min <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                        labels = round(res$xscale$labels ^ 2)) +
+  guides(size = FALSE) +
+  labs(y = "Probability of classification as potentially used")
+
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "ext.sqrt.z", "pot.used.fac")
+p_ext_avg <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                        labels = round(res$xscale$labels ^ 2)) +
+  theme(axis.title.y = element_text(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(y = "")
+
+p_ext <- cowplot::plot_grid(p_ext_min, p_ext_avg, labels = "AUTO", nrow = 1)
+cowplot::ggdraw(cowplot::add_sub(p_ext, "Source extents (square meters)",
+                                 vpadding = grid::unit(0, "lines"),
+                                 y = 6, x = 0.5, vjust = 4.5))
+
+```
+
+#### The influence of large rock abundances {#SOM-larger}
+As shown in SOM Figure S8, and as with source extent, the overall effect of this variable with otherwise
+average sources located in the vicinity of the Bau is minor (above 50% in all
+cases, and there is overlap in the 95% confidence intervals of the maximum
+and minimum probabilities). For sources where access costs are greater the
+influence of this variable becomes more critical. All else being equal, a
+source which is average for the region in all respects (relatively low quality
+materials found over a reasonably large area at ca. 3 hours from the Bau), has
+a very low probability of being classified as potentially
+utilized if it yields no or only few large rocks. However, for such a source the
+effect of having an abundance of large rocks is far more uncertain, as shown by
+95% confidence intervals which, for the maximum predicted probability, span almost
+half of the possible range. If probabilities of classification can be
+taken as reliable proxies for source selection, these data suggest,
+overall, that when access costs were a concern sources with few large rocks were avoided,
+while for sources where the abundance of large rocks was not an issue other
+variables played a more important role in determining their likelihood of selection.
+
+
+```{r som-modres-larger, fig.cap="SOM Figure S8. Modeled probabilities of source classification (0 = unused; 1 = potentially utilized) based on the abundance of large usable rocks, with minimum walking times (from the Bau) kept constant either at the observed minimum (A) or at the average for all sources in the region (B), and all other variables kept constant at their mean. Abundance values are given on a scale from 0 (absent) to 4 (very abundant; see also variable L in Table 1 of the main text). Actual observations are represented by black dots whose size is proportional to the number of unused or potentially used sources with specific abundance values. Note that the abundance of large rocks substantially and positively influences the likelihood estimates with sources that are not located in the immediate vicinity of the site (B)."}
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "large_r.z", "pot.used.fac",
+                       vopt = "time.sqrt.z",
+                       vopt_val = min(glm_sel$time.sqrt.z))
+p_lr_min <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                       labels = res$xscale$labels) +
+  guides(size = FALSE) +
+  labs(y = "Probability of classification as potentially used")
+
+res <- plot_binpred_inf(mod, data.frame(glm_sel), "large_r.z", "pot.used.fac")
+p_lr_avg <- res$g + scale_x_continuous("", breaks = res$xscale$breaks,
+                                       labels = res$xscale$labels) +
+  theme(axis.title.y = element_text(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(y = "")
+
+p_lr <- cowplot::plot_grid(p_lr_min, p_lr_avg, labels = "AUTO", nrow = 1)
+cowplot::ggdraw(cowplot::add_sub(p_lr, "Abundance of large rocks",
+                                 vpadding = grid::unit(0, "lines"), y = 6,
+                                 x = 0.5, vjust = 4.5))
+```

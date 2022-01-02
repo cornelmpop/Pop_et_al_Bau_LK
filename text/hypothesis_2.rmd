@@ -1,0 +1,318 @@
+## Assessment of hypothesis 2
+
+### Methods:
+
+#### Section 2.2.: Assessment of the proposed hypotheses
+
+We assessed $H_2$ by defining the relative benefits of each source and its alternatives as $P_{S1 (v')}$ values
+that are computed for all valid procurement paths from each source to the Bau (i.e., $v_{v→b}$, and $v’_{v→v’→b}$ for
+every alternative v’), using the procedure discussed in the previous section. For each source we then
+identified the alternative with the highest $P_{S1 (v')}$ value (i.e., optimal) as well as those (‘good’) alternatives
+whose $P_{S1 (v')}$ values fall within the 95% confidence interval of the highest, to account for estimation
+uncertainties. We contend that while the sources we identify as optimal based on currently available
+data may not be identical to the set of true optimal sources (e.g., they might constitute a subset), the
+latter are likely to be included among the sources we identify as ‘good’. This would be expected if source
+characteristics remained similar over time and our model performed well but not perfectly. 
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+source("../R/model_main.R")
+source("../R/cmp_proc_fcns.r")
+```
+
+```{r}
+# Note: Nodes may be referred to as 'n' below, instead of 'v' as in the
+# manuscript.
+
+# Prepare data for evaluating procurement path alternatives
+src_net <- form_source_net() # Form network of sources.
+# Add edge weights (time_toBau) for target - Bau and target attributes. Note
+# that self-targets exist as well, where (i.e., n-n-b == n-b).
+proc_paths <- merge(src_net, glm_sel[, c("sid", "time_toBau", "qual.log",
+                                         "ext.sqrt", "large_r")],
+                  by.x = "target_sid", by.y = "sid")
+names(proc_paths)[which(names(proc_paths) == "time_toBau")] <- "edge_w_tb"
+proc_paths <- merge(proc_paths, glm_sel[, c("sid", "time_toBau")],
+                        by.x = "sid", by.y = "sid")
+names(proc_paths)[which(names(proc_paths) == "time_toBau")] <- "edge_w_sb"
+
+
+# Process data for H2 evaluation:
+# Note: this includes n-b paths as well, since n-n-b is listed, where weight
+#       of n-n == 0.
+proc_paths$time.sqrt <- sqrt(proc_paths$edge_w_st + proc_paths$edge_w_tb)
+# Remove paths that exceed maximum in the database by more than 5%, so
+# we are mostly interpolating rather than extrapolating:
+proc_paths_red <- proc_paths[time.sqrt <= (max(glm_sel$time.sqrt) +
+                                           max(glm_sel$time.sqrt) * .05)]
+
+# 2. Predict target PS1 values with confidence intervals
+p_fits <- predict.glm(object = mod_ns, newdata = proc_paths_red,
+                      type = "link", se.fit = TRUE)
+proc_paths_red$targ_ps1 <- exp(p_fits$fit) / (1 + exp(p_fits$fit))
+proc_paths_red$targ_ps1_lwr <- p_fits$fit -
+                               p_fits$se.fit * abs(qt(p = 0.025,
+                                                      df = mod_ns$df.residual))
+proc_paths_red$targ_ps1_lwr <- exp(proc_paths_red$targ_ps1_lwr) /
+                               (1 + exp(proc_paths_red$targ_ps1_lwr))
+proc_paths_red$targ_ps1_upr <- p_fits$fit +
+                               p_fits$se.fit * abs(qt(p = 0.025,
+                                                      df = mod_ns$df.residual))
+proc_paths_red$targ_ps1_upr <- exp(proc_paths_red$targ_ps1_upr) /
+                               (1 + exp(proc_paths_red$targ_ps1_upr))
+
+# 3. Isolate alternatives that fall within 95% CI of max:
+proc_paths_red[, max_targ_ps1_lwr := max(targ_ps1_lwr), by = "sid"]
+
+# 3a. Create summaries:
+better_alts <- proc_paths_red[targ_ps1 > max_targ_ps1_lwr]
+better_alts <- merge(better_alts, glm_sel[, c("sid", "aid")],
+                        by.x = "target_sid", by.y = "sid")
+better_alts$s.pot.used <- better_alts$sid %in% glm_sel[pot.used == 1]$sid
+better_alts$t.pot.used <- better_alts$target_sid %in% glm_sel[pot.used == 1]$sid
+better_alt_sum <- better_alts[, list(s1_alts = length(which(t.pot.used == T)),
+                                     s0_alts = length(which(t.pot.used == F)),
+                                     sid_s1 = unique(s.pot.used)), by = "sid"]
+better_alt_sum$tot_alts <- better_alt_sum$s0_alts + better_alt_sum$s1_alts
+
+best_alts <- proc_paths_red[, .SD[which.max(targ_ps1)], by = "sid"]
+best_alts <- merge(best_alts, glm_sel[, c("sid", "aid")],
+                        by.x = "target_sid", by.y = "sid")
+best_alts$s.pot.used <- best_alts$sid %in% glm_sel[pot.used == 1]$sid
+best_alts$t.pot.used <- best_alts$target_sid %in% glm_sel[pot.used == 1]$sid
+best_alts$dev <- round(((best_alts$edge_w_st + best_alts$edge_w_tb) -
+                        best_alts$edge_w_sb) / best_alts$edge_w_sb * 100)
+best_alts$abs_devs <- best_alts$dev / 100 * best_alts$edge_w_sb
+```
+
+### Results:
+
+#### 3.4. Evaluation of Hypothesis 2 - Full resource network
+
+Overall, the available data provide support for our second hypothesis. Under this hypothesis, and if we consider only
+optimal procurement alternatives (hereinafter, $H_{2a}$), all but `r length(unique(best_alts$target_sid))` sources
+are predicted to have been ignored in favor of exploiting even better sources (see Fig. 1C for an explanation).
+Those `r length(unique(best_alts$target_sid))` optimal sources, for which we could identify no alternatives with
+higher $P_{S1(v')}$ values, include `r length(unique(best_alts[t.pot.used == TRUE]$target_sid))` $S_1$ sources
+(i.e., from exploited source areas) and `r length(unique(best_alts[t.pot.used == FALSE]$target_sid))` unused ones (i.e.,
+$S_0$). The sources which cannot be explained under this hypothesis, namely the `r length(unique(best_alts[t.pot.used == FALSE]$target_sid))` optimal sources that should have
+been used but were not, and the `r length(unique(best_alts[t.pot.used == FALSE]$sid)) - length(unique(best_alts[t.pot.used == FALSE]$target_sid))` other sources where these constitute, according to our algorithm, the best
+procurement options (Table 4), are all located far from the site (Fig. 6). Conversely, all sources located within
+`r round(min(glm_sel[sid %in% unique(best_alts[t.pot.used == FALSE]$sid)]$euc_dist) / 1000, 1)` km from
+the Bau can be explained: these are sources from where, according to our algorithm,
+the `r length(unique(best_alts[t.pot.used == TRUE]$target_sid))` optimal $S_1$
+sources should have been targeted. The latter can account for `r length(unique(glm_sel[sid %in% unique(best_alts[t.pot.used == TRUE]$target_sid)]$aid))` raw material types,
+or `r sum(glm_sel[aid %in% unique(glm_sel[sid %in% unique(best_alts[t.pot.used == TRUE]$target_sid)]$aid)]$lithics, na.rm = TRUE)` (`r round(sum(glm_sel[aid %in% unique(glm_sel[sid %in% unique(best_alts[t.pot.used == TRUE]$target_sid)]$aid)]$lithics, na.rm = TRUE) / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`%) of the
+lithics found at the site. It should be noted that reaching them from sources where they are identified as
+optimal procurement choices would have required relatively substantial deviations from the direct, least-cost
+paths to the Bau (median = `r median(best_alts$dev)`%, or `r round(median(best_alts$abs_dev) / 60)` minutes; interquartile range [IQR] = `r IQR(best_alts$dev)`% or `r round(IQR(best_alts$abs_dev) / 60)` minutes; with 25% of cases necessitating
+deviations of >`r as.numeric(quantile(best_alts$dev)["75%"])`% or `r round(as.numeric(quantile(best_alts$abs_dev)["75%"]) / 60)`+ minutes).
+
+<!-- Table 4 -->
+```{r h2_res_tab}
+
+h2_tr1 <- data.frame(c1 = "S0",
+           c2 = length(glm_sel[pot.used == 0 &
+                                 !sid %in% unique(best_alts$target_sid)]$sid),
+           c3 = length(glm_sel[pot.used == 0 &
+                                 sid %in% unique(best_alts$target_sid)]$sid),
+           c4 = nrow(best_alts[s.pot.used == 0 & t.pot.used == 1]),
+           c5 = nrow(best_alts[s.pot.used == 0 & t.pot.used == 0]))
+
+h2_tr2 <- data.frame(c1 = "S1",
+           c2 = length(glm_sel[pot.used == 1 &
+                                 !sid %in% unique(best_alts$target_sid)]$sid),
+           c3 = length(glm_sel[pot.used == 1 &
+                                 sid %in% unique(best_alts$target_sid)]$sid),
+           c4 = nrow(best_alts[s.pot.used == 1 & t.pot.used == 1 &
+                       !sid %in% unique(best_alts$target_sid)]),
+           c5 = nrow(best_alts[s.pot.used == 1 & t.pot.used == 0]))
+
+h2_tab <- rbind(h2_tr1, h2_tr2)
+names(h2_tab) <- c("Actual set", "Predicted S0 (S0p)", "Predicted S1 (S1p)",
+                   "S0p with S1/S1p best option",
+                   "Sources with misclassified S1p best options")
+
+cm_cap <- "Table 4. Summary of the fit between observed and predicted source
+classification under Hypothesis 2a."
+knitr::kable(h2_tab, "html", row.names = FALSE, caption = cm_cap)
+
+```
+
+<!-- Figure 6 -->
+``` {r h2_fig, fig.cap = "Figure 6. Compatibility of raw material sources with archaeological observations under Hypothesis 2, with optimal alternatives (H2a). Sources that cannot be explained under H2a are shown as red squares. Large squares denote optimal procurement choices that were not used; small squares denote sources where unused sources (large squares) are predicted to be top alternatives. Sources that can be explained are shown as green dots or yellow triangles. Green dots indicate sources predicted to have been used and which yield archaeologically represented materials; yellow triangles are sources predicted to have been bypassed in favor of procuring materials from sources identified by green dots. The location of the Bau is indicated by the circle with crosshairs. Note that all unused sources found within 17 km of the site can be explained under this hypothesis, and the identified optimal exploitation targets (green dots) can account for 83% of the lithic materials found at the site. Coordinates are given in meters for UTM zone 31N, and elevation values are given in meters above sea level (ASL).", message = FALSE, warning = FALSE, comment = FALSE}
+library(ggplot2)
+library(raster)
+library(data.table)
+library(rgdal)
+library(sf)
+
+src_green <- unique(best_alts[t.pot.used == TRUE]$target_sid)
+# These are the 310 referred to in the text, but these include the opt targets.
+src_yellow <- unique(best_alts[t.pot.used == TRUE]$sid)
+src_yellow <- src_yellow[which(!src_yellow %in% src_green)]
+src_red <- unique(best_alts[t.pot.used == FALSE]$sid)
+src_purple <- unique(best_alts[t.pot.used == FALSE]$target_sid)
+
+bau_reg <- raster("../data/bau_region.tif")
+sources_v <- readOGR("../data/sources_utm_abr", verbose = FALSE)
+sources_v_c <- data.table(sources_v@data[, c("SourceID", "Elevation",
+                                            "x", "y", "z")])
+names(sources_v_c)[1] <- "sid"
+
+reg_ext <- extent(sources_v_c)
+reg_ext[1] <- reg_ext[1] - 1000
+reg_ext[2] <- reg_ext[2] + 1000
+reg_ext[3] <- reg_ext[3] - 1000
+reg_ext[4] <- reg_ext[4] + 1000
+bau_reg_crop <- crop(bau_reg, reg_ext)
+dem.df <- as.data.frame(bau_reg_crop, xy = TRUE)
+
+# The Bau:
+bau_loc <- readRDS("../data/bau_coor.rds")
+coordinates(bau_loc) <- 6:7
+bau_loc_sf <- st_as_sf(bau_loc, coords = 1:2)
+
+# Filter/colorize sources:
+src_to_plot <- sources_v_c[sid %in% src_green]
+src_to_plot$col <- "green"
+
+src_sel <- sources_v_c[sid %in% src_yellow]
+src_sel$col <- "yellow"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+src_sel <- sources_v_c[sid %in% src_red]
+src_sel$col <- "red"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+src_sel <- sources_v_c[sid %in% src_purple]
+src_sel$col <- "purple"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+coordinates(src_to_plot) <- 3:4
+src_to_plot_sf <- st_as_sf(src_to_plot, coords = 1:2)
+
+g <- ggplot2::ggplot() +
+  geom_raster(data = dem.df, aes(x = x, y = y, fill = bau_region)) +
+  theme_bw() +   # Make the plot transparent
+  scale_fill_distiller(palette = "Greys", direction = 1) +
+  xlab(element_blank()) + ylab(element_blank()) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "yellow"), ],
+          pch = 24, fill = "yellow", size = 0.6) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ],
+          pch = 15, col = "red", size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ],
+          pch = 0, stroke = .5, size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "green"), ],
+          pch = 21, fill = "green", size = 1.5) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "purple"), ],
+          pch = 15, col = "red", size = 1.5) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "purple"), ],
+          pch = 0, stroke = .5, size = 1.5) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "black", size = 3, stroke = 0.5) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "white", size = 3, stroke = .2)
+
+ggsave("../plots/fig_6.png", plot = g,
+       dpi = 1200, width = 15, height = 10, unit = "cm")
+g
+```
+
+
+
+If, to increase the likelihood of including all true optimal sources in the set of sources classified as
+$S_{1p}$ (i.e., exploitable) under $H_2$, we also consider other ‘good’ options available at each evaluated location, 
+the sources predicted to have been unused number `r nrow(glm_sel[!sid %in% unique(better_alts$target_sid)])`. Of 
+the sources thus classified as $S_{0p}$ under this implementation of $H_2$ (hereinafter, $H_{2b}$ – see Table 1), `r nrow(glm_sel[!sid %in% unique(better_alts$target_sid) & pot.used == 1])` are from 
+exploited source areas (i.e., $S_1$), and `r nrow(glm_sel[!sid %in% unique(better_alts$target_sid) & pot.used == 0])` are unused ($S_0$) ones.
+Conversely, `r nrow(glm_sel[sid %in% unique(better_alts$target_sid) & pot.used == 1])` of the `r nrow(glm_sel[sid %in% unique(better_alts$target_sid)])` sources classified as $S_{1p}$ are in fact $S_1$, and `r nrow(glm_sel[sid %in% unique(better_alts$target_sid) & pot.used == 0])` are $S_0$. The latter are distributed throughout the region
+(pink squares in Fig. 7) and, although we cannot account for their lack of exploitation under $H_{2b}$, at no
+evaluated location do they constitute the only ‘good’ alternatives.
+Indeed, of the ‘good’ procurement options identified at each source (median = `r median(better_alt_sum$tot_alts)`; IQR = `r IQR(better_alt_sum$tot_alts)`; maximum = `r max(better_alt_sum$tot_alts)`), one 
+or more of the `r nrow(glm_sel[sid %in% unique(better_alts$target_sid) & pot.used == 1])` $S_1$ sources typically constitute the majority (min = `r round(min(better_alt_sum$s1_alts / better_alt_sum$tot_alts * 100))`%; median = `r round(median(better_alt_sum$s1_alts / better_alt_sum$tot_alts * 100))`%; maximum = `r round(max(better_alt_sum$s1_alts / better_alt_sum$tot_alts * 100))`%). These $S_1$ ‘good’ alternatives belong to
+`r length(unique(better_alts[t.pot.used == TRUE]$aid))` of the `r length(unique(glm_sel[pot.used == 1]$aid))` archaeologically represented source areas and can account for `r sum(glm_sel[aid %in% unique(better_alts[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE)` 
+(`r round(sum(glm_sel[aid %in% unique(better_alts[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE) / sum(glm_sel$lithics, na.rm=TRUE) * 100, 1)`%) of the lithic artifacts recovered at the site.
+
+The three raw material types whose presence at the Bau cannot be explained under $H_{2b}$ can only be found at 
+substantial distances from the site (minimum = `r round(min(glm_sel[pot.used == 1 & !aid %in% unique(better_alts[t.pot.used == TRUE]$aid)]$time_fromBau) / 3600, 1)` hours). One is represented by a flake
+made of a volcanic rock collected along the Durance River, which could have reached the site by simple chance,
+as an unusual component of a mobile toolkit (see Brantingham, 2003; Pop, 2016). The other two
+consist of Oligocene flints collected in the eastern part of the study region from sources located at more
+than five hours from the Bau (Fig. 2), and  silicified crust that formed on top of ochre deposits
+at Roussillon, closer to the site. While the presence of 
+these materials is noteworthy, it is important to keep in mind that they contribute negligibly to the assemblage 
+(`r sum(glm_sel[!aid %in% unique(better_alts[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE)` artifacts, or ca. `r round(sum(glm_sel[!aid %in% unique(better_alts[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE) / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`%). Overall, we find that when the entire network of sources is considered, $H_2$ fails to 
+explain why up to `r nrow(glm_sel[sid %in% unique(better_alts$target_sid) & pot.used == 0])` $S_0$ sources
+were never exploited, but also that it could explain them all, and that it may 
+account for a larger proportion of archaeological artifacts and archaeologically represented raw material types 
+than $H_1$.
+
+<!-- Figure 7 -->
+```{r h1_fig, fig.cap = "Figure 7. Compatibility of raw material sources with archaeological observations under Hypothesis 2, with ‘good’ alternatives (H2b). Sources explainable under H2b with high confidence are indicated by green dots and yellow triangles; green dots denote S1 sources identified as ‘good’ alternatives; yellow triangles denote sources predicted to have been bypassed in favor of those ‘good’ alternatives (no ‘good’ S0 alternatives identified). Sources explainable under H2b, but with lower confidence, are indicated by pink squares and black diamonds; pink squares denote 43 unused sources predicted to have been ‘good’ procurement options; black diamonds denote sources where ‘good’ alternatives could have included unused sources. Note that ‘good’ procurement alternatives from exploited source areas (green dots) exist for all sources in the region; in other words, the lack of archaeological representation of all unused sources may be explainable if we allow for some uncertainties in the identification of optimal procurement alternatives (cf. Fig. 6). The location of the Bau is indicated by the circle with crosshairs. Coordinates are given in meters for UTM zone 31N, and elevation values are given in meters above sea level (ASL).", , message = FALSE, warning = FALSE, comment = FALSE}
+
+# S1/S1p
+src_green <- unique(better_alts[t.pot.used == TRUE]$target_sid)
+# A S0 source that appears among good candidates at least at some sources.
+src_pink <- unique(better_alts[t.pot.used == FALSE]$target_sid)
+# Where all 'good' candidates are S1 sources (i.e., sources bypassed in favour
+# of S1/S1p)
+src_yellow <- better_alt_sum[s0_alts == 0 &
+                            !sid %in% src_green &
+                            !sid %in% src_pink]$sid
+
+# Everything else - sources that are not 'good' alternatives anywhere and where
+# ‘good’ alternatives could have included unused sources
+src_black <- unique(better_alts[!sid %in% src_green &
+                               !sid %in% src_pink &
+                               !sid %in% src_yellow &
+                               t.pot.used == FALSE]$sid)
+
+
+# Filter/colorize sources (re-using data from previous figure):
+src_to_plot <- sources_v_c[sid %in% src_green]
+src_to_plot$col <- "green"
+
+src_sel <- sources_v_c[sid %in% src_yellow]
+src_sel$col <- "yellow"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+src_sel <- sources_v_c[sid %in% src_black]
+src_sel$col <- "black"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+src_sel <- sources_v_c[sid %in% src_pink]
+src_sel$col <- "pink"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+# Plot:
+coordinates(src_to_plot) <- 3:4
+src_to_plot_sf <- st_as_sf(src_to_plot, coords = 1:2)
+
+g <- ggplot2::ggplot() +
+  geom_raster(data = dem.df, aes(x = x, y = y, fill = bau_region)) +
+  theme_bw() +   # Make the plot transparent
+  scale_fill_distiller(palette = "Greys", direction = 1) +
+  xlab(element_blank()) + ylab(element_blank()) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "black"), ],
+          pch = 18, fill = "black", size = 1) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "pink"), ],
+          pch = 15, col = "pink", size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "pink"), ],
+          pch = 0, stroke = .5, size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "yellow"), ],
+          pch = 24, fill = "yellow", size = 0.7, stroke = .5) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "green"), ],
+          pch = 21, fill = "green", size = 1) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "gl"), ],
+          pch = 21, fill = "green", size = 1.5) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "black", size = 3, stroke = 0.5) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "white", size = 3, stroke = .2)
+
+ggsave("../plots/fig_7.png", plot = g, dpi = 1200,
+       width = 15, height = 10, unit = "cm")
+g
+```

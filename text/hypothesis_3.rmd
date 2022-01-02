@@ -1,0 +1,261 @@
+## Assessment of hypothesis 3
+
+### Methods:
+
+#### Section 2.2.: Assessment of the proposed hypotheses
+
+To assess $H_3$ we first identified all DEM cells reachable within five hours from the Bau, temporarily
+adding each as a node (hereafter referred to as node x) to the network of sources. We chose a five-hour
+cut-off somewhat arbitrarily, to keep computations manageable, but preliminary findings suggest that
+adding more distant locations would not have been informative (see section 3.4.). For each cell we then
+evaluated all valid procurement paths to the Bau (i.e., $v_{x→v→b}$ for each cell x, and for each v'
+representing an accessible raw material source; see Fig. 1D), identifying optimal alternatives (i.e.,
+highest $P_{S1 (v’)}$ value per cell) as well as ‘good’ alternatives whose $P_{S1 (v’)}$ values fall within the 95%
+confidence interval of the highest, to account for estimation uncertainties. We examined the
+proportions of $S_0$ sources among the ‘good’ alternatives at each DEM cell across the region, to
+determine the degree to which different landscape locations are compatible with $H_3$, and investigated
+any spatial patterning. Finally, for each raw material type we also summed the number of DEM cells
+where their sources are identified as good or optimal procurement targets, that is, we calculated the
+areal extent over which a hominin could be expected to have targeted a given material, and tested for a
+correlation with the frequency (i.e., number of lithics) with which the different raw materials are
+represented at the site.
+
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+library(rgdal)
+library(raster)
+library(rasterVis)
+
+source("../R/model_main.R")
+```
+
+```{r echo = FALSE, include = FALSE}
+# Load data:
+
+#source("../R/gis_h3_datagen.R")
+#source("../R/gis_h3_datagen_aux.R") # Generates eval_hodes_5h.rds
+eval_nodes <- readRDS("../data/eval_nodes_5h.rds")
+
+# Load data required for figure (next block)
+ # Blank Bau costmap
+bau_reg <- readRDS("../data/bau_classif_blank_fullext_verified.rds")
+wt_contours <- readOGR("../data/time_fromBau_contours", verbose = FALSE)
+sites_v <- readRDS("../data/bau_coor.rds")
+sources_v <- readOGR("../data/sources_utm_abr", verbose = FALSE)
+aid_chulls <- readRDS("../data/aids.chulls.rds")
+cell_size <- bau_reg@grid@cellsize[1] * bau_reg@grid@cellsize[1] # m2
+
+# Compute PS1 values with confidence intervals:
+p_fits <- predict.glm(object = mod_ns, newdata = eval_nodes,
+                      type = "link", se.fit = TRUE)
+
+eval_nodes$targ_ps1 <- exp(p_fits$fit) / (1 + exp(p_fits$fit))
+eval_nodes$targ_ps1_lwr <- p_fits$fit -
+                           p_fits$se.fit * abs(qt(p = 0.025,
+                                                  df = mod_ns$df.residual))
+eval_nodes$targ_ps1_lwr <- exp(eval_nodes$targ_ps1_lwr) /
+                               (1 + exp(eval_nodes$targ_ps1_lwr))
+eval_nodes$targ_ps1_upr <- p_fits$fit +
+                           p_fits$se.fit * abs(qt(p = 0.025,
+                                                  df = mod_ns$df.residual))
+eval_nodes$targ_ps1_upr <- exp(eval_nodes$targ_ps1_upr) /
+                               (1 + exp(eval_nodes$targ_ps1_upr))
+
+# Reduce data to alternatives that fall within the 95CI for each cell:
+eval_nodes[, max_targ_ps1_lwr := max(targ_ps1_lwr), by = "cell"]
+eval_nodes_red <- eval_nodes[targ_ps1 > max_targ_ps1_lwr]
+
+eval_nodes_red <- merge(eval_nodes_red, glm_sel[, c("sid", "aid")],
+                        by.x = "target_sid", by.y = "sid")
+eval_nodes_red$t.pot.used <- eval_nodes_red$target_sid %in% glm_sel[pot.used == 1]$sid
+
+# Calculate per node stats:
+eval_nodes_sum <- eval_nodes_red[, list(nr_targs = .N,
+                              nr_rep = length(which(t.pot.used == 1)),
+                              nr_nonrep = .N - length(which(t.pot.used == 1))),
+                            by = "cell"]
+eval_nodes_sum$perc_rep <- round(eval_nodes_sum$nr_rep /
+                                 eval_nodes_sum$nr_targs * 100)
+
+eval_nodes_sum$usage_code <- factor(levels = c("100%", "75% to 99%",
+                                               "50% to 74%", "25% to 49%",
+                                               "1% to 24%", "0%"),
+                              ordered = TRUE)
+eval_nodes_sum[perc_rep == 100]$usage_code <- "100%"
+eval_nodes_sum[perc_rep >= 75 & perc_rep < 100]$usage_code <- "75% to 99%"
+eval_nodes_sum[perc_rep >= 50 & perc_rep < 75]$usage_code <- "50% to 74%"
+eval_nodes_sum[perc_rep >= 25 & perc_rep < 50]$usage_code <- "25% to 49%"
+eval_nodes_sum[perc_rep > 0 & perc_rep < 25]$usage_code <- "1% to 24%"
+eval_nodes_sum[perc_rep == 0]$usage_code <- "0%"
+
+# Aggregated statistics on targetted sources and SAs:
+sid_hits <- eval_nodes_red[, list(freq = .N), by = "target_sid"]
+aid_hits <- eval_nodes_red[, list(freq = .N), by = "aid"]
+aid_hits <- merge(aid_hits,
+                 glm_sel[, list(maxL = max(lithics, na.rm = TRUE)), by = "aid"],
+                 by.x = "aid", by.y = "aid")
+aid_hits_s1 <- aid_hits[maxL > 0]
+
+# Compute areas serviced by different 'sources'good' alternatives:
+eval_nodes_areas <- eval_nodes_red[, .N, by = "target_sid"]
+eval_nodes_areas$t.pot.used <- eval_nodes_areas$target_sid %in% glm_sel[pot.used == TRUE]$sid
+eval_nodes_areas$km2 <- eval_nodes_areas$N * cell_size / (1000 * 1000)
+
+cor_good_all <- cor.test(aid_hits$maxL, aid_hits$freq, method = "spearman",
+                        exact = FALSE)
+cor_good_s1 <- cor.test(aid_hits_s1$maxL, aid_hits_s1$freq, method = "spearman",
+                       exact = FALSE)
+
+# Optimal alternatives per cell, and correlations with lithics
+eval_nodes_opt <- eval_nodes_red[, .SD[which.max(targ_ps1)], by = "cell"]
+eval_nodes_opt_red <- merge(glm_sel[!is.na(lithics), c("aid", "lithics")],
+                            eval_nodes_opt[, .N, by = "aid"], by = "aid")
+cor_opt_red <- cor.test(eval_nodes_opt_red[aid != 58]$lithics,
+                        eval_nodes_opt_red[aid != 58]$N, method = "spearman")
+cor_opt_all <- cor.test(eval_nodes_opt_red$lithics, eval_nodes_opt_red$N,
+                        method = "spearman")
+
+```
+
+### Results
+
+#### 3.5. Evaluation of Hypothesis 3
+
+<!-- Figure 9 code (plot at the end of the file) -->
+```{r res-h3, include = FALSE}
+
+# Populate raster with classified data:
+bp_dt <- data.table(val = bau_reg@data$coston_SimRegion_inv,
+                    cell = rownames(bau_reg@data))
+bp_dt$cell <- as.numeric(bp_dt$cell)
+setkeyv(bp_dt, "cell")
+setkeyv(eval_nodes_sum, "cell")
+bp_comb <- merge(bp_dt, eval_nodes_sum, all = T)
+bau_reg@data$coston_SimRegion_inv <- bp_comb$usage_code
+#writeRAST(bau_reg, "../data/classif_usage_byloc_rawmodel.tif")
+
+
+# Crop data
+bau_reg_rast <- raster::raster(bau_reg)
+bau_reg_rast <- crop(bau_reg_rast, extent(wt_contours))
+sources_v_c <- sources_v[which(!is.na(extract(bau_reg_rast, sources_v))), ]
+
+# Transform to a data.table obj and add extra info:
+sources_v_c <- data.table(sources_v_c@data[, c("SourceID", "Elevation",
+                                              "x", "y", "z")])
+names(sources_v_c)[1] <- "sid"
+
+gis_sel_c <- glm_sel # Work on a copy
+gis_sel_c[, maxL := max(lithics, na.rm = TRUE), by = "aid"] # Max proc. from src
+
+# Remember that targets MAY be outside of zone!
+sources_v_c <- merge(sources_v_c, sid_hits,
+                     by.x = "sid", by.y = "target_sid", all = TRUE)
+sources_v_c <- merge(sources_v_c,
+                     gis_sel_c[, c("sid", "pot.used", "maxL")],
+                     by.x = "sid", by.y = "sid")
+sources_v_c[is.na(sources_v_c$freq)]$freq <- 0
+
+sources_v_c_s1 <- sources_v_c[pot.used == 1]
+sources_v_c_s0 <- sources_v_c[pot.used == 0]
+coordinates(sources_v_c_s1) <- 3:4
+coordinates(sources_v_c_s0) <- 3:4
+
+sites_v_c <- sites_v # Originally this read a Shapefile. Keep for now.
+coordinates(sites_v_c) <- 6:7
+
+# **Exploited** source area polygons:
+p <- lapply(aid_chulls, sp::Polygon)
+aid_chulls_poly <- sp::SpatialPolygons(lapply(seq_along(p),
+                          function(i) Polygons(list(p[[i]]), ID = names(p)[i])))
+
+# PLOT:
+cols <- c("#4DAF4A", "#8DD3C7", "#80B1D3", "#BEBADA", "#FDB462", "#FB8072")
+myTheme <- rasterTheme(region = cols)
+
+g <- levelplot(bau_reg_rast, par.settings = myTheme) +
+  latticeExtra::layer(sp.polygons(wt_contours, lwd = 2)) +
+  latticeExtra::layer(sp.points(sources_v_c_s1, pch = 19,
+                                col = rgb(0, 1, 0, 0.6),
+                          cex = 0.7 + log(sources_v_c_s1@data$freq + 1) / 7)) +
+  latticeExtra::layer(sp.points(sources_v_c_s1, pch = 21, col = "black",
+                          cex = 0.7 + log(sources_v_c_s1@data$freq + 1) / 7)) +
+  latticeExtra::layer(sp.points(sources_v_c_s0, pch = 18,
+    col = rgb(1, 0, 0, 0.6), cex = 1 + log(sources_v_c_s0@data$freq + 1) / 7)) +
+  latticeExtra::layer(sp.points(sources_v_c_s0, pch = 9, col = "black",
+                           cex = 0.6 + log(sources_v_c_s0@data$freq + 1) / 7)) +
+  latticeExtra::layer(sp.points(sites_v_c[which(sites_v_c$Name == "Bau")],
+                                pch = 13, cex = 5, lwd = 2, col = "black")) +
+  latticeExtra::layer(sp.polygons(aid_chulls_poly, line = "black"))
+
+png("../plots/Fig_9.png", height = 10, width = 15, units = "in", res = 600)
+g
+dev.off()
+
+```
+
+The set of sources predicted to be ignored or avoided under Hypothesis 3 ($H_3$), and
+consequently the set of sources deemed to have been exploitable, is identical to that predicted under $H_2$
+for any given maximum cut-off value for travel times from the Bau (see section 3.4.). When this cut-off is
+set to five hours, `r length(unique(eval_nodes_opt[t.pot.used == TRUE]$target_sid))` $S_1$
+sources are identified as optimal alternatives over `r round(nrow(eval_nodes_opt[t.pot.used == TRUE]) / nrow(eval_nodes_opt) * 100, 1)`% of the area (ca. `r round(nrow(eval_nodes_opt[t.pot.used == TRUE]) * cell_size / (1000 * 1000))` $km^2$
+of `r round(nrow(eval_nodes_opt) * cell_size / (1000 * 1000))` $km^2$),
+and a lone (`r length(unique(eval_nodes_opt[t.pot.used == FALSE]$target_sid))`) $S_0$ source (ID
+`r unique(eval_nodes_opt[t.pot.used == FALSE]$target_sid)`) is identified as the optimal procurement choice over the
+remaining `r round(nrow(eval_nodes_opt[t.pot.used == FALSE]) / nrow(eval_nodes_opt) * 100, 1)`% -
+in other words, $H_3$, like $H_2$, can account for the lack of utilization of
+`r round((nrow(glm_sel[time_fromBau <= 5 * 3600 & pot.used == 0]) - 1) / nrow(glm_sel[time_fromBau <= 5 * 3600 & pot.used == 0]) * 100, 1)`% of the `r nrow(glm_sel[time_fromBau <= 5 * 3600 & pot.used == 0])`
+unused ($S_0$) sources available within five hours of the site. The number of locations (i.e., DEM cells)
+where these $S_1$ and $S_0$ optimal alternatives are expected to have been targeted has a predictable but not
+statistically significant relationship with the number of lithics made from materials that can be procured
+at these, with one exception (Spearman’s $r_s$ [`r nrow(eval_nodes_opt_red[aid != 58]) - 2`] = `r round(as.numeric(cor_opt_red$estimate), 2)`, p = `r round(as.numeric(cor_opt_red$p.value), 3)` with source ID `r unique(eval_nodes_opt[aid == 58]$target_sid)` excluded; $r_s$ [`r nrow(eval_nodes_opt_red) - 2`] = `r round(as.numeric(cor_opt_all$estimate), 2)`,
+p = `r round(as.numeric(cor_opt_all$p.value), 3)`
+with it included). This exception, which is identified as an optimal choice over ca. `r round(eval_nodes_opt_red[aid == 58]$N / nrow(eval_nodes_opt) * 100, 1)`% of the
+area, only accounts for up to `r glm_sel[lithics > 0 & aid == 58]$lithics` of the
+provenanced lithics found at the site, and may be explainable by
+a lack of utilization of certain areas or, possibly, by an incorrect (over-)estimation of its $P_{S1(v')}$ value. Be
+that as it may, optimal resource selection based on knowledge of the relative benefits afforded by the
+available sources (i.e., nodule sizes, quality of the materials, and extent over which they may be found)
+and the cost of accessing them, fit the data well, though not necessarily equally well, regardless of
+where a hominin might have been located when deciding where to procure raw materials on their way
+to the Bau.
+
+
+
+The set of ‘good’ alternatives identified for locations (i.e., DEM cells) within five-hours of the Bau
+includes `r length(unique(eval_nodes_red$target_sid))` unique sources. Of these,
+`r length(unique(eval_nodes_red[t.pot.used == TRUE]$target_sid))` belong
+to the set $S_1$ that yield archaeologically exploited raw
+materials, representing `r length(unique(eval_nodes_red[t.pot.used == TRUE]$aid))` of
+the utilized source areas and accounting for up to `r sum(glm_sel[aid %in% unique(eval_nodes_red[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE)` of the
+provenanced lithics (i.e., `r round(sum(glm_sel[aid %in% unique(eval_nodes_red[t.pot.used == TRUE]$aid)]$lithics, na.rm = TRUE) / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`%) at the site. The other `r length(unique(eval_nodes_red[t.pot.used == FALSE]$target_sid))` are sources that are not represented at the
+Bau, and set an upper limit to the number of seemingly unused sources (of the `r nrow(glm_sel[time_fromBau <= 5 * 3600 & pot.used == 0])` available within five
+hours) that cannot be explained under $H_3$. The number of ‘good’ alternatives identified per DEM cell
+varies (mean = `r round(mean(eval_nodes_sum$nr_targs), 1)`, SD = `r round(sd(eval_nodes_sum$nr_targs), 1)`, maximum = `r max(eval_nodes_sum$nr_targs)`) and, as shown in Figure 9, they typically consist of $S_1$ sources (mean =
+`r round(mean(eval_nodes_sum$perc_rep), 1)`%, minimum = `r round(min(eval_nodes_sum$perc_rep), 1)`%, maximum = `r round(max(eval_nodes_sum$perc_rep), 1)`%). At most locations (`r round(nrow(eval_nodes_sum[perc_rep > 50])/ nrow(eval_nodes_sum) * 100, 1)`%), these constitute half or
+more of the alternatives, and no ‘good’ $S_0$ options can be identified over an area of some `r round(nrow(eval_nodes_sum[perc_rep == 100]) * cell_size / (1000 * 1000))` $km^2$ (`r round(nrow(eval_nodes_sum[perc_rep == 100])/ nrow(eval_nodes_sum) * 100, 1)`%).
+
+Digital elevation model cells where specific sources are identified as ‘good’ options form areas of
+variable size (mean = `r round(mean(eval_nodes_areas$km2), 1)` $km^2$, 
+median = `r round(median(eval_nodes_areas$km2), 1)` $km^2$, maximum = `r round(max(eval_nodes_areas$km2), 1)` $km^2$).
+A Spearman’s rank
+correlation test indicates that when these areas are summed for sources of each of the
+`r length(unique(eval_nodes_red$aid))` raw material types
+represented by the `r length(unique(eval_nodes_red$target_sid))` unique options,
+they are moderately and positively correlated with the number of
+sourced artifacts made from those materials ($r_s$ [`r nrow(aid_hits) - 2`] = `r round(as.numeric(cor_good_all$estimate), 2)`, p = `r round(as.numeric(cor_good_all$p.value), 3)`). If we assume the identification of
+non-utilized sources among the ‘good’ alternatives represents an error, and therefore only consider the
+areas serviced by alternatives from exploited source areas, the correlation becomes much stronger ($r_s$ 
+[`r nrow(aid_hits_s1) - 2`] = `r round(as.numeric(cor_good_s1$estimate), 3)`, p = `r round(as.numeric(cor_good_s1$p.value), 3)`).
+We interpret these correlations as indicating that 1) in the aggregate, and based
+solely on the lithic data, we cannot reject the possibility of a relatively uniform utilization of the region
+by the hominins responsible for the accumulation of the Bau assemblages; and 2) that, regardless of
+where they might have been located, said hominins could identify and target sources that would have
+been optimal or close to optimal procurement choices.
+
+```{r fig.cap="Figure 9. Predicted resource selection across the landscape. The different colors indicate the proportions of good procurement options consisting of raw material (RM) sources from exploited source areas (i.e., S1 sources), as computed for every location (i.e., digital elevation model [DEM] cell; 80 m resolution) under Hypothesis 3. Locations (i.e., DEM cells) where these proportions reach minimal (1–24%) and maximal (100%) values are shown in orange and dark green respectively, while cells with intermediary values are shown in purple, blue and teal. Green circles represent S1 sources available within five hours of the site, while red diamonds represent S0 (i.e., unused) sources; the size of the circles and diamonds indicates the size of the area (i.e., number of DEM cells) over which the respective sources are identified as good procurement alternatives, on a logarithmic scale. Green polygons represent convex hulls encompassing sources from individual exploited source areas, and concentric rings show GIS-computed distances that can be covered walking away from the site, in one-hour increments (minimum walking times). Note that throughout the region the identified good procurement options are mostly sources from exploited source areas; some unused sources (red diamonds) located close to the site are identified as good procurement alternatives from a large number of locations, but from those same locations good alternatives also include S1 sources, the latter accounting for a majority of options in most cases."}
+
+g
+
+```

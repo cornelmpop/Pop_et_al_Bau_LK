@@ -1,0 +1,93 @@
+# SOM S1
+
+## Raw material distribution across the Bau sequence
+
+The stratigraphy of the site is complex, and a large number of layers and sub-layers have been identified to date (Wilson, 2021). Some of the layers are substantially richer in archaeological materials than others, and this is reflected in the number of lithics with known provenance (SOM Table S1). As shown in SOM Table S2, the proportions and diversity of raw materials also varies (see also SOM Fig. S1).
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+source("../R/model_main.R")
+source("../R/cmp_proc_fcns.r")
+
+library(raster)
+library(data.table)
+library(rgdal)
+library(sf)
+library(ggplot2)
+library(ggspatial)
+
+gis_sel <- pred_cv_tc_full
+
+src_s1 <- gis_sel[pot.used == 1]
+src_s0 <- gis_sel[pot.used == 0]
+
+### MAP:
+bau_reg <- raster("../data/bau_region.tif")
+sources_v <- readOGR("../data/sources_utm_abr", verbose = FALSE)
+sources_v_c <- data.table(sources_v@data[, c("SourceID", "Elevation",
+                                             "x", "y", "z")])
+names(sources_v_c)[1] <- "sid"
+
+# Crop region extents:
+reg_ext <- extent(sources_v_c)
+reg_ext[1] <- reg_ext[1] - 1000
+reg_ext[2] <- reg_ext[2] + 1000
+reg_ext[3] <- reg_ext[3] - 1000
+reg_ext[4] <- reg_ext[4] + 1000
+bau_reg_crop <- crop(bau_reg, reg_ext)
+dem.df <- as.data.frame(bau_reg_crop, xy = TRUE)
+
+# The Bau:
+bau_loc <- readRDS("../data/bau_coor.rds")
+coordinates(bau_loc) <- 6:7
+bau_loc_sf <- st_as_sf(bau_loc, coords = 1:2)
+
+# Prep source data:
+src_to_plot <- sources_v_c[sid %in% src_s1$sid]
+src_to_plot$col <- "green"
+src_sel <- sources_v_c[sid %in% src_s0$sid]
+src_sel$col <- "red"
+src_to_plot <- rbind(src_to_plot, src_sel)
+src_to_plot <- merge(src_to_plot, gis_sel[, c("sid", "mean_fit_cv_tc")],
+                    by = "sid")
+
+aid_lithics <- gis_sel[gis_sel[, .I[which.max(lithics)], by = "aid"]$V1]
+
+# AIDs:
+aid.chulls <- readRDS("../data/aids.chulls.rds")
+# **Exploited** source area polygons:
+p <- lapply(aid.chulls, sp::Polygon)
+aid.chulls.poly <- sp::SpatialPolygons(lapply(seq_along(p),
+                         function(i) Polygons(list(p[[i]]), ID = names(p)[i])))
+
+coordinates(src_to_plot) <- 3:4
+src_to_plot_sf <- st_as_sf(src_to_plot, coords = 1:2)
+```
+
+```{r som-fig-s1, fig.cap="SOM Figure S1. Distribution of raw material sources near the Bau de l’Aubesier rockshelter. Unused sources (S0) and sources that were potentially exploited from the Bau (S1) are indicated by red and green dots respectively, while the location of the site is indicated by the yellow triangle. The size of the dots represents relative differences (cubed) in time controlled PS1 values (PS1(tc); see Table 1 in the main text), which are a proxy for overall source quality. Green polygons represent convex hulls encompassing sources from used source areas, and percentages represent the contributions of those source areas to the total number of lithics with established provenance recovered at the site. Note that most raw materials were procured from relatively distant sources and several good sources located close to the site (large red dots) were apparently not used. Coordinates are given in meters for UTM zone 31N, and elevation values are given in meters above sea level (ASL)."}
+
+g <- ggplot2::ggplot() +
+  geom_raster(data = dem.df, aes(x = x, y = y, fill = bau_region)) +
+  theme_bw() +   # Make the plot transparent
+  scale_fill_distiller(palette = "Greys", direction = 1) +
+  xlab(element_blank()) + ylab(element_blank()) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "green"), ], pch = 21,
+          fill = "green", size = src_to_plot_sf[which(src_to_plot_sf$col == "green"), ]$mean_fit_cv_tc^3) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ], pch = 21, fill = "red",
+          size = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ]$mean_fit_cv_tc^3) +
+  geom_polygon(data = broom::tidy(aid.chulls.poly),
+               aes(x = long, y = lat, group = id),
+               color = "black", fill = "green", alpha = 0.3, size = 0.15) +
+
+  geom_sf(data = bau_loc_sf, col = "yellow", pch = 17, size = 1.5) +
+  geom_sf(data = bau_loc_sf, pch = 2, col = "black", size = 1.5) +
+  geom_sf(data = bau_loc_sf, pch = 17, col = "black", size = 0.3)
+
+ggsave("../plots/fig_som_s1.jpg", plot = g,
+       dpi = 1200, width = 15, height = 10, unit = "cm")
+
+g
+```

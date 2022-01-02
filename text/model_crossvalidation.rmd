@@ -1,0 +1,170 @@
+## Cross-validation
+
+```{r crossval, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+source("../R/model_main.R")
+```
+
+### Methods:
+
+#### Section 2.2.: Cross-validation and performance
+
+To test the model's predictive ability, we used a repeated five-fold cross-validation
+procedure with stratification. This involved splitting the data into `r nfolds` groups
+(i.e., folds) of approximately equal size (n ~ `r round(nrow(glm_sel)/nfolds)`) and
+assigning an approximately equal number of randomly selected sources from $S_1$ and
+$S_0$ to each group so that they are representative of the overall population
+(i.e. ratio of ~1:`r round(nrow(glm_sel[pot.used == 0])/nrow(glm_sel[pot.used == 1]), 2)` per
+group). $P_{S1}$ values for sources within each fold were predicted using models
+trained on data from the other four folds. We repeated this
+cross-validation procedure `r reps` times to get more robust estimates for
+individual source utilization probabilities and assigned to each source the
+average of the estimates. These average $P_{S1}$ values were re-classified as
+'1' or '0' predicting membership in sets $S_1$ and $S_0$ respectively, with ‘1’ being
+assigned to sources with values greater than 0.5 (50%). To avoid confusion,
+from here on we refer to all predicted $S_1$ and $S_0$ sets as $S_{1p}$ and $S_{0p}$.
+
+The accuracy of the predictions was then assessed through a confusion matrix, a tool commonly used in the field of machine learning to evaluate the performance of classifiers. A confusion matrix has two dimensions — observed and predicted classes — and summarizes the degree to which these match. With binary classes (e.g., positive and negative, or classes that may be designated as such) the confusion matrix has four cells containing the number true positives, false positives, true negatives, and false negatives. On the basis of these numbers several performance measures can be derived, including accuracy, sensitivity, and specificity. Accuracy refers to the overall ability to classify cases correctly, while sensitivity and specificity refer to the ability to correctly classify true positives and true negatives respectively (e.g., Kuhn, 2008; Ting, 2011; Kotu and Deshpande, 2014).
+
+We further evaluated the predictions by means of Kvamme’s gain statistic (Kvamme, 1988), often used to evaluate the performance of predictive models of site location. The statistic is calculated as 1 — $p_i$/$p_s$, where $p_i$ is the proportion of the study area identified as a zone of interest and $p_s$ is the proportion of sites within that zone of interest. Values can range from -1 to 1, with zero indicating performance at the level of chance, and high values indicating good performance in the zone of interest. Since we consider sources rather than sites here, we define $p_i$ as the proportion of the total sources that are predicted to have been used (i.e., having cross-validated $P_{S1}$ values above the 0.5 threshold), and $p_s$ as the proportion of sources from exploited source areas that are predicted to have been used.
+
+### Results
+
+#### 3.1. Resource selection model and PS1 estimation
+
+```{r confusion-mx-kvamme, message = FALSE}
+
+tn <- cm_out$table[1]
+fn <- cm_out$table[2]
+fp <- cm_out$table[3]
+tp <- cm_out$table[4]
+
+kg <- 1 - ((tp + fp) / (tp + tn + fp + fn)) / (tp / (tp + fn))
+  
+```
+
+```{r echo = FALSE, message = FALSE}
+pred_s1_sids <- pred_cv_fits_agg[mean_pred >= 0.5 & obs == 1]$sid
+pred_s1_aids <- unique(glm_sel[sid %in% pred_s1_sids]$aid)
+miss_s1_aids <- unique(glm_sel[pot.used == 1 & !aid %in% pred_s1_aids]$aid)
+```
+
+A confusion matrix analysis of cross-validated $P_{S1}$ values indicates that our model
+can be used to classify sources as containing archaeologically represented raw
+material types with significantly more accuracy (`r as.numeric(round(cm_out$overall['Accuracy']*100))`%,
+balanced = `r as.numeric(round(cm_out$byClass['Balanced Accuracy']*100, 1))`%,
+p = `r as.numeric(round(cm_out$overall["AccuracyPValue"], 3))`) than would be
+expected by chance alone based solely on the incidence of non-represented sources
+(`r nrow(glm_sel[pot.used == 0])`, or `r as.numeric(round(cm_out$overall['AccuracyNull'] *100, 1))`% of
+the `r nrow(glm_sel)` accessible sources)
+when using a threshold of 50% for the classification (that is, when sources with $P_{S1}$ values greater than 0.5 are classified as used, and the rest unused). These results (Fig. 3) are driven mostly by
+the correct identification of sources with non-represented stone types (specificity =
+`r as.numeric(round(cm_out$byClass['Specificity'], 2))`), as the sensitivity is low
+(`r as.numeric(round(cm_out$byClass['Sensitivity'], 2))`). In other words, the model
+performs well in assigning low probabilities to non-represented sources, but also
+assigns low probabilities to many sources that provide stone types known to have
+been utilized at the Bau. This is not necessarily indicative of poor performance,
+however, since we do not know how many of these latter sources were in fact exploited
+by hominins inhabiting the site. It is quite likely that many were not, since a given
+raw material type could have come from a different source within its source area,
+so these results may well represent a worst-case scenario. Still, with `r length(miss_s1_aids)` of the `r length(unique(glm_sel[pot.used == 1]$aid))` exploited source areas all sources (`r nrow(glm_sel[aid %in% miss_s1_aids])` in total) are assigned probabilities that fall below the threshold of 0.5, although their
+overall contribution to the Bau is only `r sum(glm_sel[aid %in% miss_s1_aids]$lithics, na.rm = TRUE)` lithics (`r round(sum(glm_sel[aid %in% miss_s1_aids]$lithics, na.rm = TRUE) / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`% of the provenanced pieces). Regardless, these results indicate that
+the model can be used to meaningfully predict likelihoods for new cases within the
+region, such as known sources being evaluated from different landscape locations
+and therefore having different access costs. For reference, the Kvamme gain value here is `r round(kg, 3)`.
+
+<!-- Figure 3 -->
+```{r confusion-mx-fig, message = FALSE, warning = FALSE, comment = FALSE, fig.cap= "Figure 3. Compatibility of archaeological observations and source classification based on cross-validated PS1 values. Sources correctly classified as S0 (n = 224) or S1 (n = 39) when using a threshold of 0.5 are shown by green dots. Red squares identify unused (i.e., S0) sources incorrectly classified as S1 (n = 21). Yellow triangles identify S1 sources (i.e., from exploited source areas) incorrectly classified as S0 (n = 62). Note that most sources can be classified correctly based on their cross-validated PS1 values alone, but several misclassified unused sources with high values (i.e., unexplained) are located close to the site. In fact, most of the sources in the site’s vicinity (within ca. one hour of walking; see also Figure 2) are incorrectly classified as yielding archaeologically represented materials. Coordinates are given in meters for UTM zone 31N, and elevation values are given in meters above sea level (ASL)."}
+library(ggplot2)
+library(raster)
+library(data.table)
+library(rgdal)
+library(sf)
+
+fig_data <- pred_cv_fits_agg
+fig_data$pred_S1 <- as.numeric(fig_data$mean_pred > 0.5)
+
+src_green <- fig_data[obs == 1 & pred_S1 == 1]$sid
+src_green <- c(src_green, fig_data[obs == 0 & pred_S1 == 0]$sid)
+src_yellow <- fig_data[obs == 1 & pred_S1 == 0]$sid
+src_red <- fig_data[obs == 0 & pred_S1 == 1]$sid
+
+bau_reg <- raster("../data/bau_region.tif")
+sources_v <- readOGR("../data/sources_utm_abr", verbose = FALSE)
+sources_v_c <- data.table(sources_v@data[, c("SourceID", "Elevation",
+                                            "x", "y", "z")])
+names(sources_v_c)[1] <- "sid"
+
+reg_ext <- extent(sources_v_c)
+reg_ext[1] <- reg_ext[1] - 1000
+reg_ext[2] <- reg_ext[2] + 1000
+reg_ext[3] <- reg_ext[3] - 1000
+reg_ext[4] <- reg_ext[4] + 1000
+bau_reg_crop <- crop(bau_reg, reg_ext)
+dem.df <- as.data.frame(bau_reg_crop, xy = TRUE)
+
+# The Bau:
+bau_loc <- readRDS("../data/bau_coor.rds")
+coordinates(bau_loc) <- 6:7
+bau_loc_sf <- st_as_sf(bau_loc, coords = 1:2)
+
+# Filter/colorize sources:
+src_to_plot <- sources_v_c[sid %in% src_green]
+src_to_plot$col <- "green"
+
+src_sel <- sources_v_c[sid %in% src_yellow]
+src_sel$col <- "yellow"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+src_sel <- sources_v_c[sid %in% src_red]
+src_sel$col <- "red"
+src_to_plot <- rbind(src_to_plot, src_sel)
+
+coordinates(src_to_plot) <- 3:4
+src_to_plot_sf <- st_as_sf(src_to_plot, coords = 1:2)
+
+g <- ggplot2::ggplot() +
+  geom_raster(data = dem.df, aes(x = x, y = y, fill = bau_region)) +
+  theme_bw() +   # Make the plot transparent
+  scale_fill_distiller(palette = "Greys", direction = 1) +
+  xlab(element_blank()) + ylab(element_blank()) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "yellow"), ],
+          pch = 24, fill = "yellow", size = 0.6) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ],
+          pch = 15, col = "red", size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "red"), ],
+          pch = 0, stroke = .5, size = 0.7) +
+  geom_sf(data = src_to_plot_sf[which(src_to_plot_sf$col == "green"), ],
+          pch = 21, fill = "green", size = 0.6) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "black", size = 3, stroke = 0.5) +
+  geom_sf(data = bau_loc_sf, pch = 13, col = "white", size = 3, stroke = .2)
+ggsave("../plots/fig_3.png", plot = g, dpi = 1200, width = 15, height = 10,
+       unit = "cm")
+g
+
+```
+
+<!-- confusion matrix output - not included in the manuscript -->
+```{r confusion-mx-res}
+library(magrittr, warn.conflicts = FALSE)
+cm_res <- data.frame(rlab = c("S0 member (0)", "S1 member (1)"),
+                    c1 = cm_out$table[, 1], c2 = cm_out$table[, 2])
+colnames(cm_res) <- c("", "S0 member (0)", "S1 member (1)")
+
+cm_cap <- paste("Confusion matrix of observed source utilization values and
+               values predicted by the logistic model with repeated five-fold
+               cross-validation. The overall accuracy of the predictions was
+               ", as.numeric(round(cm_out$overall["Accuracy"] * 100)),
+               "% (p = ",
+               as.numeric(round(cm_out$overall["AccuracyPValue"], 3)), "), with
+               a balanced accuracy of ",
+               as.numeric(round(cm_out$byClass["Balanced Accuracy"] * 100, 1)),
+               "%.", sep = "")
+
+cm_tab <- knitr::kable(cm_res, "html", row.names = FALSE, caption = cm_cap)
+cm_tab %>%
+  #kableExtra::column_spec(1, bold = T) %>%
+  kableExtra::add_header_above(c("Predicted" = 1, "Observed" = 2))
+```

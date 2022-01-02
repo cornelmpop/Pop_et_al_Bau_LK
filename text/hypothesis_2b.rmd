@@ -1,0 +1,203 @@
+## Results: assessment of hypothesis 2 within expanding network segments (Bau-centered)
+
+### Methods:
+
+#### Section 2.2.: Assessment of the proposed hypotheses
+
+We also performed the assessment on isolated subsets of the network that expand radially from the Bau to
+include nodes whose $w_{b→v}$ edge weights (i.e., minimum walking times from the Bau) fall within cut-offs
+that increase in 10-minute increments. This allowed us to investigate the possibility that the evaluation
+of procurement alternatives may have been contingent on distance from the site and the area over
+which least-cost paths (i.e., network edges) must have been known. If this were the case, we would
+expect an increase in the ability to explain the data under $H_2$ up to a certain network size, followed by
+a steady decrease due to the addition of noise (i.e., nodes and paths that would have been too far to be
+considered in procurement decisions).
+
+### Results:
+
+#### 3.4. Evaluation of Hypothesis 2 - Expanding source networks
+
+```{r load-mod, echo=FALSE, message=FALSE, include=FALSE, results="asis"}
+knitr::opts_chunk$set(echo = FALSE)
+source("../R/model_main.R")
+source("../R/cmp_proc_fcns.r")
+```
+
+```{r}
+# Note: Nodes may be referred to as 'n' below, instead of 'v' as in the
+# manuscript.
+
+# Prepare data for evaluating procurement path alternatives
+src_net <- form_source_net() # Form network of sources.
+# Add edge weights (time_toBau) for target - Bau and target attributes. Note
+# that self-targets exist as well, where (i.e., n-n-b == n-b).
+proc_paths <- merge(src_net, glm_sel[, c("sid", "time_toBau", "qual.log",
+                                         "ext.sqrt", "large_r")],
+                  by.x = "target_sid", by.y = "sid")
+names(proc_paths)[which(names(proc_paths) == "time_toBau")] <- "edge_w_tb"
+proc_paths <- merge(proc_paths, glm_sel[, c("sid", "time_toBau")],
+                        by.x = "sid", by.y = "sid")
+names(proc_paths)[which(names(proc_paths) == "time_toBau")] <- "edge_w_sb"
+
+
+# Process data for H2a evaluation:
+# Note: this includes n-b paths as well, since n-n-b is listed, where weight
+#       of n-n == 0.
+proc_paths$time.sqrt <- sqrt(proc_paths$edge_w_st + proc_paths$edge_w_tb)
+# Remove paths that exceed maximum in the database by more than 5%, so
+# we are mostly interpolating rather than extrapolating:
+proc_paths_red <- proc_paths[time.sqrt <= (max(glm_sel$time.sqrt) +
+                                           max(glm_sel$time.sqrt) * .05)]
+
+# 2. Predict target PS1 values with confidence intervals. This will
+#    remain the same regardless of whether all paths are considered
+#    or if only a segment of the network is examined.
+p_fits <- predict.glm(object = mod_ns, newdata = proc_paths_red,
+                      type = "link", se.fit = TRUE)
+proc_paths_red$targ_ps1 <- exp(p_fits$fit) / (1 + exp(p_fits$fit))
+proc_paths_red$targ_ps1_lwr <- p_fits$fit -
+                               p_fits$se.fit * abs(qt(p = 0.025,
+                                                      df = mod_ns$df.residual))
+proc_paths_red$targ_ps1_lwr <- exp(proc_paths_red$targ_ps1_lwr) /
+                               (1 + exp(proc_paths_red$targ_ps1_lwr))
+proc_paths_red$targ_ps1_upr <- p_fits$fit +
+                               p_fits$se.fit * abs(qt(p = 0.025,
+                                                      df = mod_ns$df.residual))
+proc_paths_red$targ_ps1_upr <- exp(proc_paths_red$targ_ps1_upr) /
+                               (1 + exp(proc_paths_red$targ_ps1_upr))
+
+# 3. Evaluate procurement paths in an expanding (10m intervals) network subset
+w_inc <- seq(10 * 60, max(glm_sel$time_fromBau), by = 10 * 60) # 10m increments
+
+# Determine min/max edge weights connecting the Bau to nodes from utilized
+# source areas to bracket procurement distances for lithics
+aid_min_max <- glm_sel[pot.used == 1,
+                      list(min_edge_bs_w = min(na.omit(time_fromBau)),
+                           max_edge_bs_w = max(na.omit(time_fromBau))),
+                      by = c("aid")]
+res <- list()
+for (i in 1:length(w_inc)) {
+  # Isolate available nodes and edges (included in the inc_proc_paths df)
+  eval_nodes <- glm_sel[time_fromBau <= w_inc[i]]$sid
+  inc_proc_paths <- proc_paths_red[sid %in% eval_nodes &
+                                  target_sid %in% eval_nodes]
+
+  # Re-calculate CI for optimal paths within network subset
+  inc_proc_paths[, max_targ_ps1_lwr := max(targ_ps1_lwr), by = "sid"]
+
+  # Create summaries for the alternatives:
+  better_alts <- inc_proc_paths[targ_ps1 > max_targ_ps1_lwr]
+  better_alts <- merge(better_alts, glm_sel[, c("sid", "aid")],
+                          by.x = "target_sid", by.y = "sid")
+  better_alts$s.pot.used <- better_alts$sid %in% glm_sel[pot.used == 1]$sid
+  better_alts$t.pot.used <- better_alts$target_sid %in% glm_sel[pot.used == 1]$sid
+  better_alt_sum <- better_alts[, list(s1_alts = length(which(t.pot.used == T)),
+                                       s0_alts = length(which(t.pot.used == F)),
+                                       sid_s1 = unique(s.pot.used)), by = "sid"]
+
+  best_alts <- inc_proc_paths[, .SD[which.max(targ_ps1)], by = "sid"]
+  best_alts <- merge(best_alts, glm_sel[, c("sid", "aid")],
+                          by.x = "target_sid", by.y = "sid")
+  best_alts$s.pot.used <- best_alts$sid %in% glm_sel[pot.used == 1]$sid
+  best_alts$t.pot.used <- best_alts$target_sid %in% glm_sel[pot.used == 1]$sid
+
+  # Determine availability of sources (S1) from exploited source areas
+  # among alternatives within CI of the optimal
+  comp_rep_aids <- aid_min_max[aid %in% unique(better_alts$aid) &
+                               max_edge_bs_w <= w_inc[i]] # Fully represented
+  avail_rep_aids <- aid_min_max[min_edge_bs_w <= w_inc[i]]$aid # Available S1SAs
+
+  # Which S0 sources exist in the subnet?
+  s0_sid_in_subnet <- unique(better_alts[s.pot.used == FALSE]$sid)
+
+  res[[i]] <- data.table(inc_hrs = w_inc[i] / 3600,
+            eval_srcs_perc = length(eval_nodes) / nrow(glm_sel) * 100,
+            s1_rm_types = length(unique(best_alts[t.pot.used == TRUE]$aid)),
+            opt_lithics = sum(glm_sel[aid %in% unique(best_alts$aid)]$lithics,
+                              na.rm = TRUE), # Explainable by opt alts.
+            max_lithics = sum(glm_sel[aid %in% unique(better_alts$aid)]$lithics,
+                              na.rm = TRUE),
+            min_lithics = sum(glm_sel[aid %in% comp_rep_aids$aid]$lithics,
+                              na.rm = TRUE),
+            perc_s1_opt_targs = nrow(best_alts[t.pot.used == TRUE]) /
+                                nrow(best_alts) * 100,
+            perc_used_opt = length(unique(best_alts[t.pot.used == TRUE]$aid)) /
+                            length(avail_rep_aids) * 100,
+            s0_Ag_prop = length(which(!s0_sid_in_subnet %in% better_alts$target_sid)) /
+                         length(s0_sid_in_subnet) * 100,
+            perc_s1_alts = mean(better_alt_sum$s1_alts /
+                                (better_alt_sum$s1_alts +
+                                 better_alt_sum$s0_alts) * 100),
+            s1_aids = length(unique(better_alts[t.pot.used == TRUE]$aid))
+  )
+}
+res <- rbindlist(res)
+
+```
+
+The ability to explain the available data under $H_2$ is likely contingent on the
+area covered by the evaluated resource network: the inclusion of very distant resources is likely to add
+noise, while the exclusion of all but the closest sources is likely to leave a large portion of the data
+unexplained. We therefore expected to see an increase in the ability to explain the data with a growing
+resource network, up to a point that reflects the size of the area over which procurement decisions
+were likely taken by hominins using the Bau, and then a gradual decline with the inclusion of sources
+located further away.
+
+Our results, summarized in Figure 8, indicate that this is indeed the case. The few sources found
+within 30 minutes of the site explain the data very poorly, since: 1) they can account for a maximum of
+`r res[inc_hrs == .5]$max_lithics` provenanced lithics (ca. `r round(res[inc_hrs == .5]$max_lithics/sum(glm_sel$lithics, na.rm = TRUE) * 100)`%); 2) under $H_{2b}$ we can only predict with relative confidence the lack of
+exploitation for ca. `r round(res[inc_hrs == .5]$s0_Ag_prop)`% of the $S_0$ sources available within this restricted resource network (black line [A] in Fig. 8); and 3) only ca. `r round(res[inc_hrs == .5]$perc_s1_alts)`% of the available ‘good’ targets identified under $H_{2b}$ are $S_1$ sources (red
+dashed line [B] in Fig. 8). From this minimum of explanatory power seen with sources found within 30
+minutes of the Bau, the proportions of $S_0$ sources that can, with some confidence, be predicted to have
+been ignored under $H_{2b}$ increases steadily as we increase the size of the evaluated network, and so does the proportion of ‘good’ procurement alternatives that are $S_1$ sources and, importantly, the number of
+explainable lithics (i.e., those that could have been procured from those $S_1$ sources).
+
+This increase in the ability to explain the data can be observed until the weights of the network
+edges connecting the Bau to sources (i.e., minimum waking times) reach values of ca. 3.5 hours, at
+which point the resource network comprises `r  res[inc_hrs == 3.5]$eval_srcs_perc / 100 * nrow(glm_sel)` nodes/sources, or ca. `r round(res[inc_hrs == 3.5]$eval_srcs_perc)`% of the total. Within this
+network optimal procurement targets identified under $H_{2a}$ are $S_1$ sources in `r res[inc_hrs == 3.5]$perc_s1_opt_targs`% of cases (purple line
+[D] in Fig. 8), and can account for the utilization of `r res[inc_hrs == 3.5]$s1_rm_types` of the `r length(unique(glm_sel[pot.used == 1]$aid))` exploited raw material types as well as
+`r res[inc_hrs == 3.5]$opt_lithics` of the sourced lithics. Procurement alternatives identified as 'good' under $H_{2b}$, on the other
+hand, are mostly $S_1$ sources (`r round(res[inc_hrs == 3.5]$perc_s1_alts)`% - red dashed line [B] in Fig. 8) and can account for `r res[inc_hrs == 3.5]$max_lithics` (ca. `r round(res[inc_hrs == 3.5]$max_lithics / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`%)
+of the sourced artifacts and `r res[inc_hrs == 3.5]$s1_aids` of the `r length(unique(glm_sel[pot.used == 1]$aid))` exploited source areas. Moreover, the proportion of available
+$S_0$ sources whose lack of utilization is confidently explainable under $H_{2b}$ reaches `r round(res[inc_hrs == 3.5]$s0_Ag_prop)`%. The inclusion of
+sources located at more than four hours from the site adds considerable noise, resulting in the
+identification of some unexploited ($S_0$) sources as optimal procurement targets (see purple line [D] in
+Fig. 8) and a decrease in the proportion of ‘good’ candidates that are $S_1$ of sources (to ca. `r round(res[inc_hrs == 12]$perc_s1_alts)`% if sources
+located at more than 10 hours from the Bau are considered), but it does not improve our ability to
+explain the archaeological data except very marginally (`r res[inc_hrs == 11]$s1_aids - res[inc_hrs == 4]$s1_aids` additional raw material types, and `r res[inc_hrs == 11]$max_lithics - res[inc_hrs == 4]$max_lithics` additional provenanced artifacts). In brief, under $H_2$, the available data are most consistent with an
+excellent knowledge of the best available options for locations reachable within 2.5 to 3.5
+hours from the site; within this radius, $H_2$ can explain the lack of utilization of at least `r round(res[inc_hrs == 3.5]$s0_Ag_prop)`% of the available $S_0$ sources (possibly all), as well as the presence of most (`r round(res[inc_hrs == 3.5]$max_lithics / sum(glm_sel$lithics, na.rm = TRUE) * 100, 1)`%) of the sourced lithics recovered at the site.
+
+<!-- Figure 8 -->
+```{r res-h2a, fig.cap="Figure 8. Hypothesis 2 with increasing resource network sizes. The ability to explain the data improves as more distant sources are added, up to the inclusion of sources requiring minimum walking times of ca. 3.5 hours from the site, and then declines. The threshold (ca. 2.5 – 3.5 hours) likely represents the limits of the regular active resource exploitation area around the site. Note that the resource network is expanded radially from the Bau in 10-minute increments (minimum walking times) to include sources with increasingly greater access costs (proportion of the total [346] indicated by grey dotted line). Line A (black) represents the proportion of unused sources (S0) predicted to have been ignored under H2b at different network sizes. Also shown is the proportion of ‘good’ alternatives made up of S1 sources (B, red dashed line), the minimum and maximum quantities of archaeological artifacts these good S1 procurement alternatives can explain (C, blue lines, with the range denoted by the shaded area), and the proportion of optimal procurement alternatives (H2a) made up of S1 sources (D, purple dashed line)."}
+
+
+g <- ggplot(data = res, aes(x = inc_hrs, y = eval_srcs_perc)) +
+theme_bw() + theme(text = element_text(size = 20)) +
+  geom_line(col = rgb(0.2, 0.2, 0.2, 0.3), lty = 2, lwd = 1.4) +
+geom_ribbon(aes(ymin = round(min_lithics / sum(glm_sel$lithics,
+                                               na.rm = TRUE) * 100),
+                ymax = round(max_lithics / sum(glm_sel$lithics,
+                                               na.rm = TRUE) * 100),
+                x = inc_hrs), fill = rgb(0, 0, 1, 0.2)) +
+geom_line(aes(x = inc_hrs, y = s0_Ag_prop), col = "black", lwd = 1.1, na.rm = TRUE) +
+geom_line(aes(x = inc_hrs, y = perc_s1_opt_targs), col = "purple",
+          lty = "twodash") +
+geom_line(aes(x = inc_hrs, y = perc_s1_alts), col = "red", lty = "longdash") +
+geom_line(aes(x = inc_hrs, y = round(min_lithics / sum(glm_sel$lithics,
+                                                       na.rm = TRUE) * 100)),
+          col = "#6a6aff") +
+geom_line(aes(x = inc_hrs, y = round(max_lithics / sum(glm_sel$lithics,
+                                                       na.rm = TRUE) * 100)),
+          col = "blue", lwd = 1) +
+
+  scale_x_continuous("Minimum walking time from Bau (hrs)", breaks = 0:13,
+                     labels = 0:13) +
+  scale_y_continuous("Percentage of total available",
+                     breaks = seq(0, 100, by = 20),
+                     labels = seq(0, 100, by = 20))
+g
+ggsave("../plots/Fig_8.jpg", plot = g, width = 20, height = 15,
+       units = "cm", dpi = 1200)
+```

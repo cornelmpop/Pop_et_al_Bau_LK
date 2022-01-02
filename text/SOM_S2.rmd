@@ -1,0 +1,176 @@
+```{r setup, echo = FALSE, message = FALSE, include = FALSE, results = "asis"}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(cowplot)
+library(data.table)
+expl_data <- readRDS("../data/bau_data.rds")
+expl_data$pot.used.fac <- as.factor(expl_data$pot.used)
+```
+
+# SOM S2 - Exploratory analyses:
+
+## Access costs:
+
+Previous work suggested that site/source transfer costs measured along a straight-line route (allowing for deviations around inaccessible terrain, i.e., >60% slope) are better predictors of source utilization than those measured along least-cost routes (Browne and Wilson, 2013). However, here we target a different response (probabilities of belonging to the set $S_1$ of sources from archaeologically represented source areas) and calculate the cost of traversing least-cost paths in terms of minimum walking times rather than caloric expenditure (see also Browne and Wilson, 2011). Consequently, we re-examined the likely effects of easily computed access cost variables through simple descriptive statistics so as to identify the one resulting in the clearest separation of the data. Ease of computation was an important criterion because some of the analyses presented here involved a large number of evaluations (see section 3.5. of the main text), and we envisioned our model being usable in agent-based simulations for future studies. Four highly and significantly correlated ($\sf{r_{minimum}}$ = `r round(min(cor(na.omit(expl_data[,c("euc_dist", "surf_dist", "time_toBau", "time_fromBau")]))), 3)` <!-- for p values: Hmisc::rcorr(as.matrix(na.omit(expl_data[,c("euc_dist", "surf_dist", "time_toBau", "time_fromBau")])))$P -->) variables were investigated, namely: 1) Euclidean distances, 2) surface distances on Shuttle Radar Topography Mission (SRTM) Digital Elevation Models (DEMs) (Browne and Wilson, 2013), 3) minimum walking times from Bau; and 4) minimum walking times to Bau. The latter two are not identical because the cost of walking downhill is not the same as the cost of walking uphill (e.g., Langmuir, 1984).
+
+The strongest differentiation between seemingly non-utilized (set $S_0$) and potentially used (set $S_1$) sources was observed with walking times along least-cost routes from the Bau to the sources, although distance measures appear to perform similarly well (SOM Fig. S2). This result was surprising, as we had expected, under the assumption that the cost of carrying rocks back to the site would have been a substantial concern, that walking times to the Bau would outperform walking times from the Bau. Overall, SOM Figure S2 suggests that the ability to reach specific areas within a reasonable time was a more important driver of selection than the cost of carrying materials back to the site and, indeed, that sources located at a walking distance of over four hours from the site were typically not exploited (see also SOM Table S3). There is indeed clear gap in source utilization beyond a four-to-five hours of walking radius (or ca. 20km) from the Bau, there being no sources classified as potentially utilized over a further two-to-three hours of walking. Exploited sources beyond this gap are represented by very few archaeological pieces (n=`r sum(na.omit(expl_data[which(expl_data$time_fromBau > 4*3600),]$lithics))`, or
+`r round(sum(na.omit(expl_data[which(expl_data$time_fromBau > 4*3600),]$lithics))/sum(na.omit(expl_data$lithics))*100, 2)`%), and it may be that the latter were procured indirectly, while residing at a different site.
+
+```{r som-fig-access, fig.cap= "SOM Figure S2. Distribution of access costs across reachable (slope < 60%) potentially utilized (set S1, n = 101) and non-utilized sources (set S0, n = 245), defined as A) minimum walking times required to reach the Bau from the sources, B) minimum walking times required to reach the sources from the Bau, C) Euclidean distances (Euc. dist.) between the sources and the site, and D) minimum distances along the surface of the terrain (Surf. dist.). Black dots denote outliers (1.5 times the interquartile range) while grey dots indicate individual sources, with random horizontal jitter added to enhance visualization. Note that all four access cost variables discriminate well between unused (S0) and potentially used (S1) sources, but the best differentiation is seen with minimum walking times from the Bau (B).", fig.asp=1.5}
+t_bau <- na.omit(expl_data[, c("sid", "pot.used.fac", "time_toBau",
+                              "time_fromBau", "euc_dist", "surf_dist")])
+n <- as.data.frame(table(t_bau$pot.used.fac))
+
+p.tob <- ggplot(t_bau, aes(x = pot.used.fac, y = time_toBau / 3600)) +
+  geom_boxplot(notch = T) +
+  geom_jitter(width = 0.2, alpha = 0.1) +
+  theme_bw() + theme(legend.key = element_blank(),
+                     axis.title.x = element_blank()) +
+  labs(y = "Time to Bau (hours)") +
+  scale_x_discrete(labels = c("Not used", "Potentially used"))
+
+p.fromb <- ggplot(t_bau, aes(x = pot.used.fac, y = time_fromBau / 3600)) +
+  geom_boxplot(notch = T) +
+  geom_jitter(width = 0.2, alpha = 0.1) +
+  theme_bw() + theme(legend.key = element_blank(),
+                     axis.title.x = element_blank()) +
+  labs(y = "Time from Bau (hours)") +
+  scale_x_discrete(labels = c("Not used", "Potentially used"))
+
+p.euc <- ggplot(t_bau, aes(x = pot.used.fac, y = euc_dist / 1000)) +
+  geom_boxplot(notch = T) +
+  geom_jitter(width = 0.2, alpha = 0.1) +
+  theme_bw() + theme(legend.key = element_blank(),
+                     axis.title.x = element_blank()) +
+  labs(y = "Euc. dist. to Bau (km)") +
+  scale_x_discrete(labels = c("Not used", "Potentially used"))
+
+p.surf <- ggplot(t_bau, aes(x = pot.used.fac, y = surf_dist / 1000)) +
+  geom_boxplot(notch = T) +
+  geom_jitter(width = 0.2, alpha = 0.1) +
+  theme_bw() + theme(legend.key = element_blank(),
+                     axis.title.x = element_blank()) +
+  labs(y = "Surf. dist. to Bau (km)") +
+  scale_x_discrete(labels = c("Not used", "Potentially used"))
+
+cowplot::plot_grid(p.tob, p.fromb, p.euc, p.surf, labels = "AUTO",
+                   rel_heights = 1.3)
+rm(t_bau, n, p.surf, p.euc, p.fromb, p.tob)
+
+```
+
+## Source extents:
+
+As shown in SOM Table S4, there is no visible pattern in the non-utilized ($S_0$) sources in terms of their extent, although a likely trend can be observed with potentially utilized ($S_1$) sources. With $S_1$ sources, the data suggest a preference for larger sources or, conversely, an avoidance of smaller ones. Indeed, the largest differences are seen with the smaller sources, which appear to have been seldom (if ever) exploited. More details on the distribution of source extents across exploited source areas are provided in SOM Table S3.
+
+<!-- SOM Table S3 -->
+```{r som-tab-extent2}
+# Filter out inaccessible sources
+src.d <- data.table(expl_data[-which(is.na(expl_data$time_fromBau))])
+src.sum <- as.data.frame.matrix(xtabs(~aid + round(extent),
+                                                 data = src.d[pot.used == 1]))
+src.sum$aid <- as.numeric(rownames(src.sum))
+src.sum <- data.table(src.sum)
+setkeyv(src.sum, "aid")
+
+# Lithic sums:
+src.aux <- src.d[pot.used == 1, sum(na.omit(lithics)), by = c("aid")]
+names(src.aux) <- c("aid", "lithics")
+setkeyv(src.aux, "aid")
+src.sum <- merge(src.sum, src.aux)
+
+# Min/max travel times
+src.aux <- src.d[pot.used == 1,
+                 list(min_time = round(min(na.omit(time_fromBau)) / 3600, 1),
+                      max_time = round(max(na.omit(time_toBau)) / 3600, 1)),
+                 by = c("aid")]
+setkeyv(src.aux, "aid")
+src.sum <- merge(src.sum, src.aux)
+src.sum <- src.sum[order(-lithics)]
+names(src.sum) <- c("Area", paste(round(as.numeric(colnames(src.sum)[2:5])),
+                                  "(m<sup>2</sup>)"),
+                    "Lithics", "Time (min)", "Time (max)")
+
+knitr::kable(src.sum, booktabs = TRUE,
+             caption = "SOM Table S3. Distribution of source extents across exploited source areas, as well as associated degrees of utilization (i.e., number of attributable archaeological lithics) and minimum/maximum access costs for sources of the latter, defined as minimum walking times (in hours) from the Bau.")
+
+```
+
+<!-- SOM Table S4 -->
+```{r som-tab-extent}
+# Filter out inaccessible sources
+red_data <- expl_data[-which(is.na(expl_data$time_fromBau))]
+src.d <- data.frame(matrix(NA, ncol = length(names(table(red_data$extent))) + 1,
+                          nrow = 2))
+names(src.d) <- c("Factor",
+               paste(names(table(round(red_data$extent))), "(m<sup>2</sup>)"))
+src.d[1, ] <- c("Potentially used",
+             as.vector(table(red_data[which(red_data$pot.used == 1), ]$extent)))
+src.d[2, ] <- c("Not used",
+             as.vector(table(red_data[which(red_data$pot.used == 0), ]$extent)))
+
+knitr::kable(src.d, booktabs = TRUE, caption = "SOM Table S4. Frequencies of source extents across reachable (n = 346) potentially used (set S1) and non-utilized (set S0) sources.")
+rm(src.d)
+```
+
+
+
+## Rock size abundances:
+
+In terms of the abundance of different rock sizes at the sources, no obvious trends that would allow for meaningful discrimination between potentially used ($S_1$) and non-utilized ($S_0$) sources are observable with small and very large rock size classes (SOM Table S5). The abundance of medium-sized rocks appears to be a more promising differentiator, but the distribution of frequencies across abundance classes is very imbalanced, with over 75% of the sources, regardless of their utilization category, falling under the ‘scarce’ classification. The most promising variable in this class, then, is the abundance of large rocks, which shows a more even spread of observations.
+
+<!-- SOM Table S5 -->
+```{r som-abundances}
+# Filter out inaccessible sources
+src.d <- data.table(expl_data[-which(is.na(expl_data$time_fromBau))])
+
+src.sr <- as.data.frame.matrix(xtabs(~pot.used.fac + small_r, data = src.d))
+src.sr <- cbind(type = "Small rocks", rownames(src.sr), c(0, 0), src.sr)
+colnames(src.sr)[2] <- "Factor"
+colnames(src.sr)[3] <- "0"
+
+src.mr <- as.data.frame.matrix(xtabs(~pot.used.fac + med_r, data = src.d))
+src.mr <- cbind(type = "Medium rocks", rownames(src.mr), src.mr)
+colnames(src.mr)[2] <- "Factor"
+
+src.lr <- as.data.frame.matrix(xtabs(~pot.used.fac + large_r, data = src.d))
+src.lr <- cbind(type = "Large rocks", rownames(src.lr), src.lr)
+colnames(src.lr)[2] <- "Factor"
+
+src.vlr <- as.data.frame.matrix(xtabs(~pot.used.fac + vlarge_r, data = src.d))
+src.vlr <- cbind(type = "Very large rocks", rownames(src.vlr), src.vlr)
+colnames(src.vlr)[2] <- "Factor"
+
+src.ab <- data.table(rbind(src.sr, src.mr, src.lr, src.vlr))
+src.ab$Factor <- as.character(src.ab$Factor)
+src.ab[Factor == "0"]$Factor <- "Not used (S0)"
+src.ab[Factor == "1"]$Factor <- "Potentially used (S1)"
+
+colnames(src.ab) <- c("Type", "Factor", "None", "Scarce", "Relatively scarce",
+                      "Abundant", "Very abundant")
+
+src.tb <- knitr::kable(src.ab, "html",
+                       caption = "SOM Table S5. Frequencies of abundance values for different nodule sizes at the accessible sources (n = 346).")
+src.tb <- kableExtra::column_spec(src.tb, 2, width = "12em")
+kableExtra::collapse_rows(src.tb, 1)
+```
+
+## Raw material quality
+
+There are clear differences in the quality of raw materials found at seemingly non-utilized ($S_0$) and potentially utilized ($S_1$) sources (SOM Fig. S3). Non-utilized sources show a positively skewed distribution with most sources clustering at lower quality values, the median falling below the lower confidence interval of the median quality observed for potentially utilized sources. The distributions do show considerable overlap, however, and there are several high-quality sources which do not appear to have been utilized. Overall, raw material quality appears to be a good discriminator between the source utilization categories, but likely played a more modest role in determining the usability of a source than the access costs of the latter, since the median walking times from Bau for potentially utilized sources fall outside the interquartile range for non-utilized ones (see SOM Fig. S2B).
+
+```{r som-qual, fig.cap = "SOM Figure S3. Raw material quality at accessible (n = 346) non-utilized (S0) and potentially utilized (S1) sources. Black dots denote outliers (1.5 times the interquartile range) while grey dots indicate individual sources, with random horizontal jitter added to enhance visualization. Note that for both sets of sources the quality values span a similar range, but S0 sources (Not used) are somewhat more variable, and both the median and maximum quality value for that set is lower than for S1 sources (Potentially used). The lack of overlap in the notches (approximate confidence intervals for the medians) suggests raw material quality is a useful discriminator between the source utilization categories."}
+
+# Filter out inaccessible sources
+src.d <- data.table(expl_data[-which(is.na(expl_data$time_fromBau))])
+
+ggplot(src.d,
+       aes(x = pot.used.fac, y = quality)) +
+  geom_boxplot(notch = T) +
+  geom_jitter(width = 0.2, alpha = 0.1) +
+  theme_bw() + theme(legend.key = element_blank(),
+                     axis.title.x = element_blank()) +
+  labs(y = "Raw material quality") +
+  scale_x_discrete(labels = c("Not used", "Potentially used"))
+```
+
