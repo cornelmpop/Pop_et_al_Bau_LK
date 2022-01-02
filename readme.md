@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/443686003.svg)](https://zenodo.org/badge/latestdoi/443686003)
+
 ## Evaluating landscape knowledge and lithic resource selection at the French Middle Paleolithic site of the Bau de l’Aubesier - Supplement
 
 Authors: Cornel M. Pop; Lucy Wilson; Connie Browne
