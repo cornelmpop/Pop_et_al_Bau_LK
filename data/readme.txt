@@ -1,1 +1,1 @@
-This folder must be populated with data prior to running the R Markdown files in ../text/. Most of the data can be downloaded from: https://1drv.ms/u/s!AoBI2eTRBwa_hL5yNGAlrVwBq_Z-gQ?e=pn1fws. The rest of the data is available upon request from Lucy Wilson.
+This folder must be populated with data prior to running the R Markdown files in ../text/. Most of the data can be downloaded from: https://1drv.ms/u/s!AoBI2eTRBwa_hL5yNGAlrVwBq_Z-gQ?e=pn1fws; the rest of the data is available upon request from Lucy Wilson.
